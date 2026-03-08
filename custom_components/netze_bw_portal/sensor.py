@@ -1,0 +1,181 @@
+"""Sensor platform for Netze BW Portal."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.const import UnitOfEnergy
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory, DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from . import NetzeBwPortalConfigEntry
+from .const import DOMAIN
+from .coordinator import NetzeBwPortalCoordinator
+from .models import MeterSnapshot
+
+
+@dataclass(frozen=True)
+class NetzeBwSensorDescription(SensorEntityDescription):
+    """Description for Netze BW sensor."""
+
+    value_fn: Callable[[MeterSnapshot], Any]
+
+
+SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
+    NetzeBwSensorDescription(
+        key="daily_value",
+        translation_key="daily_value",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=3,
+        value_fn=lambda snapshot: snapshot.daily_value,
+    ),
+    NetzeBwSensorDescription(
+        key="total_reading",
+        translation_key="total_reading",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=3,
+        value_fn=lambda snapshot: snapshot.total_reading,
+    ),
+    NetzeBwSensorDescription(
+        key="sum_7d",
+        translation_key="sum_7d",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=3,
+        value_fn=lambda snapshot: snapshot.sum_7d,
+    ),
+    NetzeBwSensorDescription(
+        key="sum_30d",
+        translation_key="sum_30d",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=3,
+        value_fn=lambda snapshot: snapshot.sum_30d,
+    ),
+    NetzeBwSensorDescription(
+        key="last_date",
+        translation_key="last_date",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda snapshot: snapshot.last_date,
+    ),
+    NetzeBwSensorDescription(
+        key="serial_no",
+        translation_key="serial_no",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.details.serial_no,
+    ),
+    NetzeBwSensorDescription(
+        key="metering_code",
+        translation_key="metering_code",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.details.metering_code,
+    ),
+    NetzeBwSensorDescription(
+        key="smgw_id",
+        translation_key="smgw_id",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.details.smgw_id,
+    ),
+    NetzeBwSensorDescription(
+        key="value_types",
+        translation_key="value_types",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: ", ".join(snapshot.meter.value_types),
+    ),
+)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: NetzeBwPortalConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Netze BW Portal sensors."""
+    coordinator = entry.runtime_data.coordinator
+
+    entities: list[NetzeBwPortalSensor] = []
+    for meter_id in coordinator.data.meters:
+        for description in SENSOR_DESCRIPTIONS:
+            entities.append(NetzeBwPortalSensor(coordinator, meter_id, description))
+
+    async_add_entities(entities)
+
+
+class NetzeBwPortalSensor(CoordinatorEntity[NetzeBwPortalCoordinator], SensorEntity):
+    """Representation of a Netze BW sensor."""
+
+    entity_description: NetzeBwSensorDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: NetzeBwPortalCoordinator,
+        meter_id: str,
+        description: NetzeBwSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._meter_id = meter_id
+        self._attr_unique_id = (
+            f"{coordinator.data.account_sub}_{self._meter_id}_{description.key}"
+        )
+
+    @property
+    def _snapshot(self) -> MeterSnapshot | None:
+        return self.coordinator.data.meters.get(self._meter_id)
+
+    @property
+    def available(self) -> bool:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return False
+        value = self.entity_description.value_fn(snapshot)
+        return value is not None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return DeviceInfo(identifiers={(DOMAIN, self._meter_id)})
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._meter_id)},
+            name=snapshot.meter.friendly_name,
+            manufacturer="Netze BW",
+            model=snapshot.meter.meter_type,
+            serial_number=snapshot.details.serial_no,
+        )
+
+    @property
+    def native_value(self) -> str | float | datetime | None:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return None
+        return self.entity_description.value_fn(snapshot)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return {}
+        return {
+            "meter_id": snapshot.meter.id,
+            "gateway_meter_id": snapshot.meter.meter_id,
+            "value_types": snapshot.meter.value_types,
+        }

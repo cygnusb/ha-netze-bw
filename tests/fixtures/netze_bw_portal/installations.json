@@ -1,0 +1,27 @@
+{
+  "installations": [
+    {
+      "id": "43D711FCC2A8570691DF880DAA5F98EE",
+      "type": "IMS",
+      "friendlyName": "Verbrauch",
+      "meterId": "1ISK0094524284",
+      "valueTypes": ["CONSUMPTION"],
+      "state": "Active"
+    },
+    {
+      "id": "67EB3DDAF71666674560F299E759F9E8",
+      "type": "IMS",
+      "friendlyName": "Einspeisung",
+      "meterId": "1ISK0094524284",
+      "valueTypes": ["FEEDIN"],
+      "state": "Active"
+    },
+    {
+      "id": "81002153555",
+      "type": "MSB",
+      "friendlyName": "Zaehlermiete",
+      "state": "Active"
+    }
+  ],
+  "errors": []
+}

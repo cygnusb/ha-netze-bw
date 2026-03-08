@@ -1,0 +1,7 @@
+{
+  "name": "Netze BW Portal",
+  "content_in_root": false,
+  "render_readme": true,
+  "domains": ["sensor"],
+  "homeassistant": "2025.1.0"
+}

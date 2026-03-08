@@ -1,0 +1,67 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Netze BW Portal",
+        "description": "Connect to your meine.netze-bw.de account.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Netze BW Portal options",
+        "data": {
+          "selected_meter_ids": "Enabled meters",
+          "scan_interval_minutes": "Polling interval (minutes)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to refresh meter list"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "daily_value": {
+        "name": "Daily energy"
+      },
+      "total_reading": {
+        "name": "Total reading"
+      },
+      "sum_7d": {
+        "name": "7 day sum"
+      },
+      "sum_30d": {
+        "name": "30 day sum"
+      },
+      "last_date": {
+        "name": "Last measurement date"
+      },
+      "serial_no": {
+        "name": "Serial number"
+      },
+      "metering_code": {
+        "name": "Metering code"
+      },
+      "smgw_id": {
+        "name": "SMGW ID"
+      },
+      "value_types": {
+        "name": "Value types"
+      }
+    }
+  }
+}
