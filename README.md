@@ -85,14 +85,14 @@ logger:
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-[release-badge]: https://img.shields.io/github/v/release/valerius/ha-netze-bw?include_prereleases
-[release-url]: https://github.com/valerius/ha-netze-bw/releases
-[downloads-badge]: https://img.shields.io/github/downloads/valerius/ha-netze-bw/total
+[release-badge]: https://img.shields.io/github/v/release/cygnusb/ha-netze-bw?include_prereleases
+[release-url]: https://github.com/cygnusb/ha-netze-bw/releases
+[downloads-badge]: https://img.shields.io/github/downloads/cygnusb/ha-netze-bw/total
 [hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
 [hacs-url]: https://hacs.xyz
 [ha-badge]: https://img.shields.io/badge/HA-2025.1.0+-blue.svg
 [ha-url]: https://www.home-assistant.io/
-[license-badge]: https://img.shields.io/github/license/valerius/ha-netze-bw
-[license-url]: https://github.com/valerius/ha-netze-bw/blob/main/LICENSE
-[commits-badge]: https://img.shields.io/github/commit-activity/y/valerius/ha-netze-bw
-[commits-url]: https://github.com/valerius/ha-netze-bw/commits/main
+[license-badge]: https://img.shields.io/github/license/cygnusb/ha-netze-bw
+[license-url]: https://github.com/cygnusb/ha-netze-bw/blob/main/LICENSE
+[commits-badge]: https://img.shields.io/github/commit-activity/y/cygnusb/ha-netze-bw
+[commits-url]: https://github.com/cygnusb/ha-netze-bw/commits/main
