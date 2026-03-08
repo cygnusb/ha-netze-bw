@@ -76,6 +76,10 @@ class NetzeBwPortalApiClient:
         self._session = session
         self._username = username
         self._password = password
+        self._user_agent = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+        )
 
     async def async_ensure_login(self) -> str:
         """Ensure session is authenticated and return account sub."""
@@ -145,6 +149,13 @@ class NetzeBwPortalApiClient:
             auth_response = await self._session.post(
                 f"{AUTH_URL}/usernamepassword/login",
                 json=payload,
+                headers={
+                    "Accept": "*/*",
+                    "Auth0-Client": "eyJuYW1lIjoibG9jay5qcy11bHAiLCJ2ZXJzaW9uIjoiMTEuMTcuMyIsImVudiI6eyJhdXRoMC5qcy11bHAiOiI5LjExLjIifX0=",
+                    "Origin": AUTH_URL,
+                    "Referer": str(login_entry.url),
+                    "User-Agent": self._user_agent,
+                },
             )
         except Exception as err:
             raise NetzeBwPortalConnectionError("Could not submit credentials") from err
@@ -153,7 +164,15 @@ class NetzeBwPortalApiClient:
         form_parser = _HiddenInputParser()
         form_parser.feed(auth_body)
         if not form_parser.form_action or "wresult" not in form_parser.hidden_inputs:
-            raise NetzeBwPortalAuthError("Authentication challenge not supported (MFA/Captcha?)")
+            if auth_response.status >= 400:
+                raise NetzeBwPortalAuthError(
+                    f"Auth request failed with status {auth_response.status}"
+                )
+            snippet = auth_body[:250].replace("\n", " ")
+            raise NetzeBwPortalAuthError(
+                "Authentication challenge not supported (MFA/Captcha?) "
+                f"or invalid response body: {snippet}"
+            )
 
         callback_url = urljoin(str(auth_response.url), form_parser.form_action)
         callback_resp = await self._session.post(
@@ -177,7 +196,9 @@ class NetzeBwPortalApiClient:
         try:
             resp = await self._session.get(f"{BASE_URL}/bff/auth/user")
         except Exception as err:
-            raise NetzeBwPortalConnectionError("Could not read auth user endpoint") from err
+            raise NetzeBwPortalConnectionError(
+                f"Could not read auth user endpoint: {err!r}"
+            ) from err
 
         if resp.status == 401:
             if raise_on_unauth:
