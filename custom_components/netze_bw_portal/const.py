@@ -9,14 +9,10 @@ DOMAIN: Final = "netze_bw_portal"
 PLATFORMS: Final = ["sensor"]
 
 CONF_SELECTED_METER_IDS: Final = "selected_meter_ids"
-CONF_SCAN_INTERVAL_MINUTES: Final = "scan_interval_minutes"
 CONF_ACCOUNT_SUB: Final = "account_sub"
 
-DEFAULT_SCAN_INTERVAL_MINUTES: Final = 15
-MIN_SCAN_INTERVAL_MINUTES: Final = 5
-MAX_SCAN_INTERVAL_MINUTES: Final = 120
-
-DEFAULT_SCAN_INTERVAL: Final = timedelta(minutes=DEFAULT_SCAN_INTERVAL_MINUTES)
+DEFAULT_SCAN_INTERVAL_HOURS: Final = 12
+DEFAULT_SCAN_INTERVAL: Final = timedelta(hours=DEFAULT_SCAN_INTERVAL_HOURS)
 
 BASE_URL: Final = "https://meine.netze-bw.de"
 AUTH_URL: Final = "https://login.netze-bw.de"

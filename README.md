@@ -1,5 +1,9 @@
 # Netze BW Portal Integration for Home Assistant
 
+<p align="center">
+  <img src="assets/logo.svg" width="220" alt="Netze BW Portal logo">
+</p>
+
 [![GitHub Release][release-badge]][release-url]
 [![GitHub Downloads (all assets, all releases)][downloads-badge]][release-url]
 [![HACS Custom][hacs-badge]][hacs-url]
@@ -27,7 +31,8 @@ Custom [Home Assistant](https://www.home-assistant.io/) integration for the [Net
 | SMGW ID | Smart meter gateway ID (diagnostic) | - |
 | Value types | Available value types (diagnostic) | - |
 
-- Options flow to select which meters to track and set the polling interval (5 - 120 min, default 15 min)
+- Options flow to select which meters to track
+- Fixed polling interval of 12 hours to match the low-frequency availability of portal data
 - Supports both consumption and feed-in (Einspeisung) meters
 
 ## Installation
@@ -57,7 +62,8 @@ Custom [Home Assistant](https://www.home-assistant.io/) integration for the [Net
 After setup, click **Configure** on the integration to:
 
 - Select which meters to enable/disable
-- Adjust the polling interval (default: 15 minutes)
+
+Data is refreshed automatically every 12 hours.
 
 ## Debug Logging
 
@@ -73,7 +79,7 @@ logger:
 
 - Accounts with MFA (multi-factor authentication) or additional interactive login steps are not supported
 - The integration uses the shared Home Assistant HTTP session; other integrations' cookies do not interfere, but the session is not isolated
-- Data availability depends on the Netze BW portal API; daily values may be delayed by up to 24 hours
+- Data is refreshed every 12 hours; daily values in the portal itself may still be delayed by up to 24 hours
 
 ## Requirements
 

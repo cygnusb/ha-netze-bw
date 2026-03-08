@@ -22,12 +22,8 @@ from .api import (
 )
 from .const import (
     CONF_ACCOUNT_SUB,
-    CONF_SCAN_INTERVAL_MINUTES,
     CONF_SELECTED_METER_IDS,
-    DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
-    MAX_SCAN_INTERVAL_MINUTES,
-    MIN_SCAN_INTERVAL_MINUTES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,7 +74,6 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                     options={
                         CONF_SELECTED_METER_IDS: selected_meter_ids,
-                        CONF_SCAN_INTERVAL_MINUTES: DEFAULT_SCAN_INTERVAL_MINUTES,
                     },
                 )
 
@@ -135,16 +130,6 @@ class NetzeBwPortalOptionsFlow(config_entries.OptionsFlow):
                         CONF_SELECTED_METER_IDS,
                         default=current_selected,
                     ): cv.multi_select(meter_choices),
-                    vol.Required(
-                        CONF_SCAN_INTERVAL_MINUTES,
-                        default=self.config_entry.options.get(
-                            CONF_SCAN_INTERVAL_MINUTES,
-                            DEFAULT_SCAN_INTERVAL_MINUTES,
-                        ),
-                    ): vol.All(
-                        vol.Coerce(int),
-                        vol.Range(min=MIN_SCAN_INTERVAL_MINUTES, max=MAX_SCAN_INTERVAL_MINUTES),
-                    ),
                 }
             ),
             errors=errors,

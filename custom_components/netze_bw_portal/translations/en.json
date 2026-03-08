@@ -24,8 +24,7 @@
       "init": {
         "title": "Netze BW Portal options",
         "data": {
-          "selected_meter_ids": "Enabled meters",
-          "scan_interval_minutes": "Polling interval (minutes)"
+          "selected_meter_ids": "Enabled meters"
         }
       }
     },
