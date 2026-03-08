@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
+import logging
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -22,6 +23,8 @@ from .const import (
     VALUE_TYPE_READING,
 )
 from .models import CoordinatorData, MeterDefinition, MeterDetails, MeterSnapshot
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class NetzeBwPortalError(Exception):
@@ -72,7 +75,12 @@ class _MeasurementSummary:
 class NetzeBwPortalApiClient:
     """API client for Netze BW portal."""
 
-    def __init__(self, session: ClientSession, username: str, password: str) -> None:
+    def __init__(
+        self,
+        session: ClientSession,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> None:
         self._session = session
         self._username = username
         self._password = password
@@ -80,6 +88,13 @@ class NetzeBwPortalApiClient:
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
         )
+
+    def _bff_headers(self) -> dict[str, str]:
+        """Return common headers required by the Duende BFF anti-forgery protection."""
+        return {
+            "x-csrf": "1",
+            "User-Agent": self._user_agent,
+        }
 
     async def async_ensure_login(self) -> str:
         """Ensure session is authenticated and return account sub."""
@@ -94,16 +109,21 @@ class NetzeBwPortalApiClient:
 
     async def async_login(self) -> None:
         """Login with username/password through the Auth0 form flow."""
+        _LOGGER.debug("Starting Auth0 login flow")
+        login_debug: dict[str, str | int] = {}
         try:
             login_entry = await self._session.get(
-                f"{BASE_URL}/bff/auth/login",
-                params={"returnUrl": "/signin?target=%2F"},
+                f"{BASE_URL}/bff/auth/login?returnUrl=/signin?target=%2F",
                 allow_redirects=True,
             )
         except Exception as err:
             raise NetzeBwPortalConnectionError("Could not open login entrypoint") from err
+        _LOGGER.debug("Login entrypoint final URL: %s (status %s)", login_entry.url, login_entry.status)
+        login_debug["login_entry_url"] = str(login_entry.url)
+        login_debug["login_entry_status"] = login_entry.status
 
         if login_entry.url.host == "meine.netze-bw.de":
+            _LOGGER.debug("Already authenticated via existing session")
             return
 
         if login_entry.url.host != "login.netze-bw.de":
@@ -114,6 +134,11 @@ class NetzeBwPortalApiClient:
         login_page = await login_entry.text()
         parser = _HiddenInputParser()
         parser.feed(login_page)
+        cookie_jar = self._session.cookie_jar.filter_cookies(login_entry.url)
+        csrf_cookie = cookie_jar.get("_csrf")
+        csrf_value = parser.hidden_inputs.get("_csrf") or (
+            csrf_cookie.value if csrf_cookie is not None else ""
+        )
 
         query = parse_qs(urlparse(str(login_entry.url)).query)
 
@@ -131,7 +156,7 @@ class NetzeBwPortalApiClient:
             "popup_options": {},
             "sso": True,
             "_intstate": "deprecated",
-            "_csrf": parser.hidden_inputs.get("_csrf", ""),
+            "_csrf": csrf_value,
             "audience": self._query_one(query, "audience"),
             "code_challenge_method": self._query_one(query, "code_challenge_method"),
             "code_challenge": self._query_one(query, "code_challenge"),
@@ -159,6 +184,9 @@ class NetzeBwPortalApiClient:
             )
         except Exception as err:
             raise NetzeBwPortalConnectionError("Could not submit credentials") from err
+        _LOGGER.debug("Auth response status: %s", auth_response.status)
+        login_debug["auth_response_status"] = auth_response.status
+        login_debug["auth_response_url"] = str(auth_response.url)
 
         auth_body = await auth_response.text()
         form_parser = _HiddenInputParser()
@@ -179,22 +207,73 @@ class NetzeBwPortalApiClient:
             callback_url,
             data=form_parser.hidden_inputs,
             allow_redirects=False,
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Origin": AUTH_URL,
+                "Referer": str(auth_response.url),
+                "User-Agent": self._user_agent,
+            },
         )
+        _LOGGER.debug("Callback response status: %s", callback_resp.status)
+        login_debug["callback_status"] = callback_resp.status
+        login_debug["callback_url"] = str(callback_resp.url)
 
         location = callback_resp.headers.get("Location")
         if callback_resp.status not in (301, 302) or not location:
             raise NetzeBwPortalAuthError("Missing authorization resume redirect")
 
         resume_url = urljoin(str(callback_resp.url), location)
-        await self._session.get(resume_url, allow_redirects=True)
+        resume_resp = await self._session.get(
+            resume_url,
+            allow_redirects=True,
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Referer": str(callback_resp.url),
+                "User-Agent": self._user_agent,
+            },
+        )
+        _LOGGER.debug("Resume response final URL: %s status=%s", resume_resp.url, resume_resp.status)
+        login_debug["resume_status"] = resume_resp.status
+        login_debug["resume_url"] = str(resume_resp.url)
+        for response in [*resume_resp.history, resume_resp]:
+            if response.cookies:
+                self._session.cookie_jar.update_cookies(response.cookies, response.url)
 
-        # Final login verification
-        await self.async_get_account_sub(raise_on_unauth=True)
+        bff_cookies = self._session.cookie_jar.filter_cookies(BASE_URL)
+        login_debug["bff_cookie_names"] = ",".join(sorted(bff_cookies.keys()))
+
+        # Finalize login on app root and verify with brief retries.
+        await self._session.get(
+            f"{BASE_URL}/",
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Referer": str(resume_resp.url),
+                "User-Agent": self._user_agent,
+            },
+        )
+
+        last_err: NetzeBwPortalAuthError | None = None
+        for attempt in range(4):
+            try:
+                await self.async_get_account_sub(raise_on_unauth=True)
+                _LOGGER.debug("Login successful on attempt %d", attempt)
+                return
+            except NetzeBwPortalAuthError as err:
+                last_err = err
+                _LOGGER.debug("Auth check attempt %d failed: %s", attempt, err)
+                await asyncio.sleep(0.4)
+
+        raise NetzeBwPortalAuthError(
+            f"Not authenticated after login flow: {login_debug}"
+        ) from last_err
 
     async def async_get_account_sub(self, raise_on_unauth: bool = False) -> str | None:
         """Return account subject from /bff/auth/user."""
         try:
-            resp = await self._session.get(f"{BASE_URL}/bff/auth/user")
+            resp = await self._session.get(
+                f"{BASE_URL}/bff/auth/user",
+                headers=self._bff_headers(),
+            )
         except Exception as err:
             raise NetzeBwPortalConnectionError(
                 f"Could not read auth user endpoint: {err!r}"
@@ -343,7 +422,7 @@ class NetzeBwPortalApiClient:
         return results
 
     async def _get_json(self, url: str, params: dict[str, str] | None = None) -> dict[str, Any]:
-        response = await self._session.get(url, params=params)
+        response = await self._session.get(url, params=params, headers=self._bff_headers())
         if response.status == 401:
             raise NetzeBwPortalAuthError("Unauthorized")
         if response.status >= 400:

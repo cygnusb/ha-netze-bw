@@ -25,7 +25,7 @@ from .coordinator import NetzeBwPortalCoordinator
 from .models import MeterSnapshot
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class NetzeBwSensorDescription(SensorEntityDescription):
     """Description for Netze BW sensor."""
 

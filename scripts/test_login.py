@@ -50,7 +50,11 @@ async def _main() -> int:
         except Exception as err:
             print(f"preflight FAILED: {err!r}", file=sys.stderr)
 
-        client = NetzeBwPortalApiClient(session=session, username=username, password=password)
+        client = NetzeBwPortalApiClient(
+            session=session,
+            username=username,
+            password=password,
+        )
 
         try:
             sub = await client.async_ensure_login()

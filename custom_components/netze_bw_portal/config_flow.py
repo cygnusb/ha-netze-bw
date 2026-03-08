@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -29,6 +30,8 @@ from .const import (
     MIN_SCAN_INTERVAL_MINUTES,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Netze BW Portal."""
@@ -52,10 +55,13 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 account_sub = await client.async_ensure_login()
                 meter_choices = await client.async_fetch_ims_meter_choices()
             except NetzeBwPortalAuthError:
+                _LOGGER.exception("Authentication failed during config flow")
                 errors["base"] = "invalid_auth"
             except NetzeBwPortalConnectionError:
+                _LOGGER.exception("Connection failed during config flow")
                 errors["base"] = "cannot_connect"
             except Exception:
+                _LOGGER.exception("Unexpected error during config flow")
                 errors["base"] = "unknown"
             else:
                 await self.async_set_unique_id(account_sub)
