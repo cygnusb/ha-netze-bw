@@ -11,7 +11,7 @@
 [![License][license-badge]][license-url]
 [![GitHub commit activity][commits-badge]][commits-url]
 
-Custom [Home Assistant](https://www.home-assistant.io/) integration for the [Netze BW Kundenportal](https://meine.netze-bw.de) (meine.netze-bw.de). Automatically discovers your smart meters (IMS) and creates sensors for energy consumption and feed-in data.
+Home Assistant integration for the [Netze BW portal](https://meine.netze-bw.de) with automatic smart meter discovery and energy consumption/feed-in sensors.
 
 ## Features
 
