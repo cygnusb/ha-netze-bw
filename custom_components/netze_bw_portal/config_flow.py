@@ -22,8 +22,14 @@ from .api import (
 )
 from .const import (
     CONF_ACCOUNT_SUB,
+    CONF_ENABLE_DAILY_HISTORY,
+    CONF_ENABLE_HOURLY_HISTORY,
+    CONF_HISTORY_BACKFILL_DAYS,
+    CONF_HOURLY_BACKFILL_RECHECK_DAYS,
     CONF_SELECTED_METER_IDS,
     DOMAIN,
+    HISTORY_DAYS,
+    HISTORY_HOURLY_PRIORITY_DAYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +80,10 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                     options={
                         CONF_SELECTED_METER_IDS: selected_meter_ids,
+                        CONF_ENABLE_DAILY_HISTORY: True,
+                        CONF_ENABLE_HOURLY_HISTORY: True,
+                        CONF_HISTORY_BACKFILL_DAYS: HISTORY_DAYS,
+                        CONF_HOURLY_BACKFILL_RECHECK_DAYS: HISTORY_HOURLY_PRIORITY_DAYS,
                     },
                 )
 
@@ -130,6 +140,24 @@ class NetzeBwPortalOptionsFlow(config_entries.OptionsFlow):
                         CONF_SELECTED_METER_IDS,
                         default=current_selected,
                     ): cv.multi_select(meter_choices),
+                    vol.Required(
+                        CONF_ENABLE_DAILY_HISTORY,
+                        default=self._config_entry.options.get(CONF_ENABLE_DAILY_HISTORY, True),
+                    ): bool,
+                    vol.Required(
+                        CONF_ENABLE_HOURLY_HISTORY,
+                        default=self._config_entry.options.get(CONF_ENABLE_HOURLY_HISTORY, True),
+                    ): bool,
+                    vol.Required(
+                        CONF_HISTORY_BACKFILL_DAYS,
+                        default=self._config_entry.options.get(CONF_HISTORY_BACKFILL_DAYS, HISTORY_DAYS),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
+                    vol.Required(
+                        CONF_HOURLY_BACKFILL_RECHECK_DAYS,
+                        default=self._config_entry.options.get(
+                            CONF_HOURLY_BACKFILL_RECHECK_DAYS, HISTORY_HOURLY_PRIORITY_DAYS
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=7)),
                 }
             ),
             errors=errors,

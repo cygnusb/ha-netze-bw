@@ -32,6 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NetzeBwPortalConfigEntry
     from .api import NetzeBwPortalApiClient
     from .const import PLATFORMS
     from .coordinator import NetzeBwPortalCoordinator
+    from .history import NetzeBwPortalHistoryManager
 
     session = async_get_clientsession(hass)
     client = NetzeBwPortalApiClient(
@@ -39,10 +40,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: NetzeBwPortalConfigEntry
         username=entry.data[CONF_USERNAME],
         password=entry.data[CONF_PASSWORD],
     )
-    coordinator = NetzeBwPortalCoordinator(hass, entry, client)
+    history_manager = NetzeBwPortalHistoryManager(hass, entry.entry_id, client)
+    await history_manager.async_initialize()
+    coordinator = NetzeBwPortalCoordinator(hass, entry, client, history_manager)
     await coordinator.async_config_entry_first_refresh()
 
-    entry.runtime_data = NetzeBwPortalRuntimeData(client=client, coordinator=coordinator)
+    entry.runtime_data = NetzeBwPortalRuntimeData(
+        client=client,
+        coordinator=coordinator,
+    )
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

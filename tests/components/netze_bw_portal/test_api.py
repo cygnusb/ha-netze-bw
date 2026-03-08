@@ -10,6 +10,7 @@ from custom_components.netze_bw_portal.api import (
     _HiddenInputParser,
 )
 from custom_components.netze_bw_portal.const import (
+    MEASUREMENT_FILTER_DAY,
     VALUE_TYPE_CONSUMPTION,
     VALUE_TYPE_FEEDIN,
     VALUE_TYPE_FEEDIN_READING,
@@ -69,3 +70,48 @@ def test_value_type_mapping_for_consumption_and_feedin() -> None:
         VALUE_TYPE_FEEDIN_READING,
         "lastfeedin",
     )
+
+
+def test_parse_measurement_series_maps_har_fields() -> None:
+    """Measurement series should retain bounds and interval timestamps."""
+    client = NetzeBwPortalApiClient(session=None)  # type: ignore[arg-type]
+
+    payload = {
+        "minMeasurementStartDateTime": "2026-02-01T00:00:00Z",
+        "maxMeasurementEndDateTime": "2026-03-01T00:00:00Z",
+        "measurements": [
+            {
+                "startDatetime": "2026-02-27T00:00:00Z",
+                "endDatetime": "2026-02-28T00:00:00Z",
+                "value": "4.25",
+                "unit": "kWh",
+                "status": "VALID",
+            },
+            {
+                "startDatetime": "2026-02-28T00:00:00Z",
+                "endDatetime": "2026-03-01T00:00:00Z",
+                "value": "5.75",
+                "unit": "kWh",
+                "status": "VALID",
+            },
+        ],
+    }
+
+    series = NetzeBwPortalApiClient._measurement_series_from_payload(
+        meter_id="meter-1",
+        value_type=VALUE_TYPE_CONSUMPTION,
+        interval=MEASUREMENT_FILTER_DAY,
+        payload=payload,
+    )
+
+    assert series.meter_id == "meter-1"
+    assert series.value_type == VALUE_TYPE_CONSUMPTION
+    assert series.interval == MEASUREMENT_FILTER_DAY
+    assert series.unit == "kWh"
+    assert len(series.points) == 2
+    assert series.points[0].value == 4.25
+    assert series.points[0].status == "VALID"
+    assert series.points[0].start_datetime.isoformat() == "2026-02-27T00:00:00+00:00"
+    assert series.points[0].end_datetime.isoformat() == "2026-02-28T00:00:00+00:00"
+    assert series.min_measurement_start_datetime.isoformat() == "2026-02-01T00:00:00+00:00"
+    assert series.max_measurement_end_datetime.isoformat() == "2026-03-01T00:00:00+00:00"

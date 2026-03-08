@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 import logging
@@ -16,13 +15,21 @@ from .const import (
     AUTH_URL,
     BASE_URL,
     HISTORY_DAYS,
+    MEASUREMENT_FILTER_DAY,
     METER_TYPE_IMS,
     VALUE_TYPE_CONSUMPTION,
     VALUE_TYPE_FEEDIN,
     VALUE_TYPE_FEEDIN_READING,
     VALUE_TYPE_READING,
 )
-from .models import CoordinatorData, MeterDefinition, MeterDetails, MeterSnapshot
+from .models import (
+    CoordinatorData,
+    MeasurementPoint,
+    MeasurementSeries,
+    MeterDefinition,
+    MeterDetails,
+    MeterSnapshot,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,14 +69,6 @@ class _HiddenInputParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag == "form":
             self._inside_form = False
-
-
-@dataclass
-class _MeasurementSummary:
-    """Parsed response for /measurements."""
-
-    values: list[float]
-    unit: str | None
 
 
 class NetzeBwPortalApiClient:
@@ -338,12 +337,26 @@ class NetzeBwPortalApiClient:
         daily_value = self._to_float(last_data.get("value"))
         last_date = self._parse_datetime(last_data.get("date"))
 
-        total_measurement = await self._fetch_measurements(meter.id, value_type_total)
-        total_reading = total_measurement.values[-1] if total_measurement.values else None
+        total_measurement = await self.async_fetch_measurement_series(
+            meter_id=meter.id,
+            value_type=value_type_total,
+            interval=MEASUREMENT_FILTER_DAY,
+            start=datetime.now(tz=timezone.utc) - timedelta(days=HISTORY_DAYS),
+            end=datetime.now(tz=timezone.utc),
+        )
+        total_values = [point.value for point in total_measurement.points if point.value is not None]
+        total_reading = total_values[-1] if total_values else None
 
-        daily_measurement = await self._fetch_measurements(meter.id, value_type_daily)
-        sum_30d = sum(daily_measurement.values[-30:]) if daily_measurement.values else None
-        sum_7d = sum(daily_measurement.values[-7:]) if daily_measurement.values else None
+        daily_measurement = await self.async_fetch_measurement_series(
+            meter_id=meter.id,
+            value_type=value_type_daily,
+            interval=MEASUREMENT_FILTER_DAY,
+            start=datetime.now(tz=timezone.utc) - timedelta(days=HISTORY_DAYS),
+            end=datetime.now(tz=timezone.utc),
+        )
+        daily_values = [point.value for point in daily_measurement.points if point.value is not None]
+        sum_30d = sum(daily_values[-30:]) if daily_values else None
+        sum_7d = sum(daily_values[-7:]) if daily_values else None
 
         return MeterSnapshot(
             meter=meter,
@@ -356,31 +369,76 @@ class NetzeBwPortalApiClient:
             unit=daily_measurement.unit or total_measurement.unit,
         )
 
-    async def _fetch_measurements(self, meter_id: str, value_type: str) -> _MeasurementSummary:
-        now = datetime.now(tz=timezone.utc)
-        start = now - timedelta(days=HISTORY_DAYS)
-
+    async def async_fetch_measurement_series(
+        self,
+        meter_id: str,
+        value_type: str,
+        interval: str,
+        start: datetime,
+        end: datetime,
+    ) -> MeasurementSeries:
+        """Fetch a generic measurement series."""
         payload = await self._get_json(
             f"{BASE_URL}/bff/api/imsservice/v1/meters/{meter_id}/measurements",
             params={
                 "valueType": value_type,
                 "startDate": self._isoformat(start),
-                "endDate": self._isoformat(now),
-                "filter": "1DAY",
+                "endDate": self._isoformat(end),
+                "filter": interval,
             },
         )
+        return self._measurement_series_from_payload(
+            meter_id=meter_id,
+            value_type=value_type,
+            interval=interval,
+            payload=payload,
+        )
 
+    @classmethod
+    def _measurement_series_from_payload(
+        cls,
+        *,
+        meter_id: str,
+        value_type: str,
+        interval: str,
+        payload: dict[str, Any],
+    ) -> MeasurementSeries:
+        """Parse the measurements payload into internal models."""
         measurements = payload.get("measurements", [])
-        values: list[float] = []
+        points: list[MeasurementPoint] = []
         unit: str | None = None
         for measurement in measurements:
             if unit is None:
                 unit = measurement.get("unit")
-            value = self._to_float(measurement.get("value"))
-            if value is not None:
-                values.append(value)
+            points.append(
+                MeasurementPoint(
+                    start_datetime=cls._parse_datetime(
+                        measurement.get("startDatetime") or measurement.get("date")
+                    )
+                    or cls._parse_datetime(measurement.get("endDatetime") or measurement.get("date"))
+                    or datetime.now(tz=timezone.utc),
+                    end_datetime=cls._parse_datetime(
+                        measurement.get("endDatetime") or measurement.get("date")
+                    ),
+                    value=cls._to_float(measurement.get("value")),
+                    unit=measurement.get("unit"),
+                    status=measurement.get("status"),
+                )
+            )
 
-        return _MeasurementSummary(values=values, unit=unit)
+        return MeasurementSeries(
+            meter_id=meter_id,
+            value_type=value_type,
+            interval=interval,
+            points=points,
+            unit=unit,
+            min_measurement_start_datetime=cls._parse_datetime(
+                payload.get("minMeasurementStartDateTime")
+            ),
+            max_measurement_end_datetime=cls._parse_datetime(
+                payload.get("maxMeasurementEndDateTime")
+            ),
+        )
 
     @staticmethod
     def _value_types_for_meter(meter: MeterDefinition) -> tuple[str, str, str]:
@@ -441,7 +499,10 @@ class NetzeBwPortalApiClient:
         if value is None:
             return None
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
         except ValueError:
             return None
 

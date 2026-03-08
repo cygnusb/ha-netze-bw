@@ -64,3 +64,28 @@ def test_period_energy_sensors_do_not_set_measurement_state_class() -> None:
             invalid_keys.add(key)
 
     assert invalid_keys == set()
+
+
+def test_history_diagnostic_sensors_are_declared() -> None:
+    """History visibility sensors should exist as separate entity descriptions."""
+    tree = ast.parse(SENSOR_PATH.read_text())
+
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "NetzeBwSensorDescription":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "key" and isinstance(keyword.value, ast.Constant):
+                keys.add(keyword.value.value)
+
+    assert {
+        "history_status",
+        "history_last_daily_point",
+        "history_last_hourly_point",
+        "history_last_backfill",
+        "history_open_gaps",
+        "last_fetch",
+        "next_fetch",
+    }.issubset(keys)

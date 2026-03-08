@@ -1,0 +1,91 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Netze BW Portal",
+        "description": "Verbinde dein meine.netze-bw.de Konto.",
+        "data": {
+          "username": "Benutzername",
+          "password": "Passwort"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung fehlgeschlagen",
+      "invalid_auth": "Ungültige Anmeldedaten",
+      "unknown": "Unerwarteter Fehler"
+    },
+    "abort": {
+      "already_configured": "Konto ist bereits konfiguriert"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Netze BW Portal Optionen",
+        "data": {
+          "selected_meter_ids": "Aktivierte Zähler",
+          "enable_daily_history": "Tägliche Historie abrufen",
+          "enable_hourly_history": "Stündliche Historie abrufen",
+          "history_backfill_days": "Historie-Rückfüllung (Tage)",
+          "hourly_backfill_recheck_days": "Stündliche Nachprüfung (Tage)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Zählerliste konnte nicht geladen werden"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "daily_value": {
+        "name": "Tagesenergie"
+      },
+      "total_reading": {
+        "name": "Zählerstand"
+      },
+      "sum_7d": {
+        "name": "7-Tage-Summe"
+      },
+      "sum_30d": {
+        "name": "30-Tage-Summe"
+      },
+      "last_date": {
+        "name": "Letzter Messzeitpunkt"
+      },
+      "serial_no": {
+        "name": "Seriennummer"
+      },
+      "metering_code": {
+        "name": "Messlokations-ID"
+      },
+      "smgw_id": {
+        "name": "SMGW-ID"
+      },
+      "value_types": {
+        "name": "Werttypen"
+      },
+      "history_status": {
+        "name": "Historienstatus"
+      },
+      "history_last_daily_point": {
+        "name": "Letzter Tageswert"
+      },
+      "history_last_hourly_point": {
+        "name": "Letzter Stundenwert"
+      },
+      "history_last_backfill": {
+        "name": "Letzte Historien-Aktualisierung"
+      },
+      "history_open_gaps": {
+        "name": "Offene Datenlücken"
+      },
+      "last_fetch": {
+        "name": "Letzter Datenabruf"
+      },
+      "next_fetch": {
+        "name": "Nächster Datenabruf"
+      }
+    }
+  }
+}

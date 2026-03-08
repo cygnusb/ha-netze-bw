@@ -40,6 +40,57 @@ class MeterSnapshot:
     sum_7d: float | None
     sum_30d: float | None
     unit: str | None
+    history_status: str | None = None
+    history_last_daily_point: datetime | None = None
+    history_last_hourly_point: datetime | None = None
+    history_last_backfill: datetime | None = None
+    history_open_gaps: int = 0
+    last_fetch: datetime | None = None
+    next_fetch: datetime | None = None
+
+
+@dataclass(frozen=True)
+class MeasurementPoint:
+    """Single measurement interval or reading point."""
+
+    start_datetime: datetime
+    end_datetime: datetime | None
+    value: float | None
+    unit: str | None
+    status: str | None
+
+
+@dataclass(frozen=True)
+class MeasurementSeries:
+    """Time series returned by the measurements endpoint."""
+
+    meter_id: str
+    value_type: str
+    interval: str
+    points: list[MeasurementPoint]
+    unit: str | None
+    min_measurement_start_datetime: datetime | None = None
+    max_measurement_end_datetime: datetime | None = None
+
+
+@dataclass(frozen=True)
+class HistoryGap:
+    """Missing interval in the expected history window."""
+
+    interval: str
+    start_datetime: datetime
+    end_datetime: datetime
+
+
+@dataclass(frozen=True)
+class HistoryState:
+    """Computed history status for a meter."""
+
+    status: str
+    last_daily_point: datetime | None
+    last_hourly_point: datetime | None
+    open_gaps: tuple[HistoryGap, ...] = ()
+    last_backfill: datetime | None = None
 
 
 @dataclass

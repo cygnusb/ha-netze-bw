@@ -96,6 +96,53 @@ SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda snapshot: ", ".join(snapshot.meter.value_types),
     ),
+    NetzeBwSensorDescription(
+        key="history_status",
+        translation_key="history_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.history_status,
+    ),
+    NetzeBwSensorDescription(
+        key="history_last_daily_point",
+        translation_key="history_last_daily_point",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.history_last_daily_point,
+    ),
+    NetzeBwSensorDescription(
+        key="history_last_hourly_point",
+        translation_key="history_last_hourly_point",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.history_last_hourly_point,
+    ),
+    NetzeBwSensorDescription(
+        key="history_last_backfill",
+        translation_key="history_last_backfill",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.history_last_backfill,
+    ),
+    NetzeBwSensorDescription(
+        key="history_open_gaps",
+        translation_key="history_open_gaps",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.history_open_gaps,
+    ),
+    NetzeBwSensorDescription(
+        key="last_fetch",
+        translation_key="last_fetch",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.last_fetch,
+    ),
+    NetzeBwSensorDescription(
+        key="next_fetch",
+        translation_key="next_fetch",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.next_fetch,
+    ),
 )
 
 

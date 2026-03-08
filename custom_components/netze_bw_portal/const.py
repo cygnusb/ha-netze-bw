@@ -10,8 +10,12 @@ PLATFORMS: Final = ["sensor"]
 
 CONF_SELECTED_METER_IDS: Final = "selected_meter_ids"
 CONF_ACCOUNT_SUB: Final = "account_sub"
+CONF_ENABLE_DAILY_HISTORY: Final = "enable_daily_history"
+CONF_ENABLE_HOURLY_HISTORY: Final = "enable_hourly_history"
+CONF_HISTORY_BACKFILL_DAYS: Final = "history_backfill_days"
+CONF_HOURLY_BACKFILL_RECHECK_DAYS: Final = "hourly_backfill_recheck_days"
 
-DEFAULT_SCAN_INTERVAL_HOURS: Final = 12
+DEFAULT_SCAN_INTERVAL_HOURS: Final = 6
 DEFAULT_SCAN_INTERVAL: Final = timedelta(hours=DEFAULT_SCAN_INTERVAL_HOURS)
 
 BASE_URL: Final = "https://meine.netze-bw.de"
@@ -25,3 +29,12 @@ VALUE_TYPE_FEEDIN_READING: Final = "FEEDIN_READING"
 
 HISTORY_DAYS: Final = 30
 HISTORY_SHORT_DAYS: Final = 7
+HISTORY_DAILY_DELAY_DAYS: Final = 1
+HISTORY_HOURLY_DELAY_HOURS: Final = 6
+HISTORY_HOURLY_PRIORITY_DAYS: Final = 3
+
+MEASUREMENT_FILTER_DAY: Final = "1DAY"
+MEASUREMENT_FILTER_HOUR: Final = "1HOUR"
+MEASUREMENT_FILTER_MONTH: Final = "1MONTH"
+
+PORTAL_TIMEZONE: Final = "Europe/Berlin"
