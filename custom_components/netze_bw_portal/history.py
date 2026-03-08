@@ -163,6 +163,7 @@ class NetzeBwPortalHistoryManager:
             source=DOMAIN,
             statistic_id=_statistic_id(meter, series.interval),
             unit_of_measurement=series.unit or "kWh",
+            unit_class="energy",
         )
         async_add_external_statistics(self.hass, metadata, rows)
 

@@ -82,7 +82,11 @@ SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
         key="metering_code",
         translation_key="metering_code",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda snapshot: snapshot.details.metering_code,
+        value_fn=lambda snapshot: (
+            _format_metering_code(snapshot.details.metering_code)
+            if snapshot.details.metering_code
+            else None
+        ),
     ),
     NetzeBwSensorDescription(
         key="smgw_id",
@@ -144,6 +148,12 @@ SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
         value_fn=lambda snapshot: snapshot.next_fetch,
     ),
 )
+
+
+def _format_metering_code(code: str) -> str:
+    """Format MeLo-ID with spaces every 4 chars for readability."""
+    # DE + 31 digits → "DE00 1234 5678 …"
+    return " ".join(code[i : i + 4] for i in range(0, len(code), 4))
 
 
 async def async_setup_entry(
