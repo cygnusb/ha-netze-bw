@@ -99,13 +99,13 @@ class NetzeBwPortalOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for Netze BW Portal."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Manage options."""
         errors: dict[str, str] = {}
 
-        runtime_data = self.config_entry.runtime_data
+        runtime_data = self._config_entry.runtime_data
 
         try:
             meter_choices = await runtime_data.client.async_fetch_ims_meter_choices()
@@ -113,7 +113,7 @@ class NetzeBwPortalOptionsFlow(config_entries.OptionsFlow):
             meter_choices = {}
             errors["base"] = "cannot_connect"
 
-        current_selected = self.config_entry.options.get(CONF_SELECTED_METER_IDS)
+        current_selected = self._config_entry.options.get(CONF_SELECTED_METER_IDS)
         if not isinstance(current_selected, list):
             current_selected = list(meter_choices.keys())
         elif meter_choices:
