@@ -376,6 +376,11 @@ def _statistic_id(meter: MeterDefinition, interval: str) -> str:
 
 
 def _statistics_rows_from_series(series: MeasurementSeries) -> list[StatisticData]:
+    # HA external statistics only support hourly boundaries.
+    # For sub-hourly intervals (15MIN), aggregate into hourly buckets first.
+    if series.interval == MEASUREMENT_FILTER_15MIN:
+        return _statistics_rows_aggregated_hourly(series)
+
     running_sum = 0.0
     rows: list[StatisticData] = []
     for point in series.points:
@@ -393,12 +398,29 @@ def _statistics_rows_from_series(series: MeasurementSeries) -> list[StatisticDat
     return rows
 
 
+def _statistics_rows_aggregated_hourly(series: MeasurementSeries) -> list[StatisticData]:
+    """Aggregate sub-hourly points into hourly buckets for recorder compatibility."""
+    buckets: dict[datetime, float] = {}
+    for point in series.points:
+        if point.value is None:
+            continue
+        hour = point.start_datetime.astimezone(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        )
+        buckets[hour] = buckets.get(hour, 0.0) + point.value
+
+    running_sum = 0.0
+    rows: list[StatisticData] = []
+    for hour in sorted(buckets):
+        value = buckets[hour]
+        running_sum += value
+        rows.append(StatisticData(start=hour, state=value, sum=running_sum))
+    return rows
+
+
 def _normalize_statistic_start(value: datetime, interval: str) -> datetime:
     """Normalize recorder timestamps to interval boundaries."""
     value = value.astimezone(timezone.utc)
-    if interval == MEASUREMENT_FILTER_15MIN:
-        slot = (value.minute // 15) * 15
-        return value.replace(minute=slot, second=0, microsecond=0)
     return value.replace(minute=0, second=0, microsecond=0)
 
 
