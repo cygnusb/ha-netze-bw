@@ -33,6 +33,7 @@ Each discovered meter gets the following sensors:
 | Daily energy | Last reported daily consumption or feed-in from the portal API | kWh | — |
 | Daily consumption | Latest daily value from the backfilled history | kWh | Measurement |
 | Hourly consumption | Latest hourly value from the backfilled history | kWh | Measurement |
+| 15-minute consumption | Latest 15-minute value from the backfilled history (if enabled) | kWh | Measurement |
 | Total reading | Current cumulative meter reading | kWh | Total increasing |
 | 7 day sum | Sum of the last 7 days | kWh | — |
 | 30 day sum | Sum of the last 30 days | kWh | — |
@@ -49,6 +50,7 @@ Each discovered meter gets the following sensors:
 | History status | `ok` / `gaps` / `error` / `disabled` |
 | Last daily history point | Timestamp of the newest daily statistic pushed to HA |
 | Last hourly history point | Timestamp of the newest hourly statistic pushed to HA |
+| Last 15-minute history point | Timestamp of the newest 15-minute statistic pushed to HA |
 | Last history backfill | Timestamp of the last successful history fetch |
 | Open history gaps | Number of date gaps still missing from the expected window |
 | Last data fetch | Timestamp of the last coordinator update |
