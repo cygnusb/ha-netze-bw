@@ -1,13 +1,13 @@
 {
   "domain": "netze_bw_portal",
   "name": "Netze BW Portal",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@cygnusb"],
   "config_flow": true,
   "documentation": "https://github.com/cygnusb/ha-netze-bw",
-  "issue_tracker": "https://github.com/cygnusb/ha-netze-bw/issues",
-  "after_dependencies": ["recorder"],
   "integration_type": "service",
   "iot_class": "cloud_polling",
-  "version": "0.5.0",
-  "loggers": ["custom_components.netze_bw_portal"]
+  "issue_tracker": "https://github.com/cygnusb/ha-netze-bw/issues",
+  "loggers": ["custom_components.netze_bw_portal"],
+  "version": "0.5.0"
 }
