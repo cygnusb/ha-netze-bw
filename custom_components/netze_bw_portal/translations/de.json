@@ -27,6 +27,7 @@
           "selected_meter_ids": "Aktivierte Zähler",
           "enable_daily_history": "Tägliche Historie abrufen",
           "enable_hourly_history": "Stündliche Historie abrufen",
+          "enable_15min_history": "15-Minuten-Verlauf aktivieren",
           "history_backfill_days": "Historie-Rückfüllung (Tage)"
         }
       }
@@ -90,6 +91,21 @@
       },
       "next_fetch": {
         "name": "Nächster Datenabruf"
+      },
+      "hourly_feedin": {
+        "name": "Stündliche Einspeisung"
+      },
+      "daily_feedin": {
+        "name": "Tägliche Einspeisung"
+      },
+      "15min_value": {
+        "name": "15-Minuten Verbrauch"
+      },
+      "15min_feedin": {
+        "name": "15-Minuten Einspeisung"
+      },
+      "history_last_15min_point": {
+        "name": "Letzter 15-Minuten Verlaufspunkt"
       }
     }
   }

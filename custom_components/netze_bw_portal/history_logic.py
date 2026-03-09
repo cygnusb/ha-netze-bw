@@ -9,6 +9,7 @@ from .const import (
     HISTORY_DAILY_DELAY_DAYS,
     HISTORY_HOURLY_DELAY_HOURS,
     HISTORY_RECHECK_DAYS,
+    MEASUREMENT_FILTER_15MIN,
     MEASUREMENT_FILTER_DAY,
     MEASUREMENT_FILTER_HOUR,
     PORTAL_TIMEZONE,
@@ -85,6 +86,9 @@ def compute_history_state(
     last_backfill: datetime | None,
     last_daily_point: datetime | None = None,
     last_hourly_point: datetime | None = None,
+    fifteenmin_fetched_dates: set[date] | None = None,
+    fifteenmin_enabled: bool = False,
+    last_15min_point: datetime | None = None,
 ) -> HistoryState:
     """Compute visible history status for a meter from fetched-date sets."""
     now = _ensure_utc(now)
@@ -112,9 +116,19 @@ def compute_history_state(
                 end_datetime=start + timedelta(days=1),
             ))
 
+    if fifteenmin_enabled:
+        exp_15min = expected_hourly_dates(now, backfill_days)
+        for d in sorted(missing_dates(exp_15min, fifteenmin_fetched_dates or set())):
+            start = datetime.combine(d, time.min, tzinfo=PORTAL_TZ).astimezone(timezone.utc)
+            gaps.append(HistoryGap(
+                interval=MEASUREMENT_FILTER_15MIN,
+                start_datetime=start,
+                end_datetime=start + timedelta(days=1),
+            ))
+
     if gaps:
         status = "gaps"
-    elif daily_enabled or hourly_enabled:
+    elif daily_enabled or hourly_enabled or fifteenmin_enabled:
         status = "ok"
     else:
         status = "disabled"
@@ -125,4 +139,5 @@ def compute_history_state(
         last_hourly_point=last_hourly_point,
         open_gaps=tuple(gaps),
         last_backfill=last_backfill,
+        last_15min_point=last_15min_point,
     )

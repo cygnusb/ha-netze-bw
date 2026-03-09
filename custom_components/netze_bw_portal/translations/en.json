@@ -27,6 +27,7 @@
           "selected_meter_ids": "Enabled meters",
           "enable_daily_history": "Enable daily history backfill",
           "enable_hourly_history": "Enable hourly history backfill",
+          "enable_15min_history": "Enable 15-minute history backfill",
           "history_backfill_days": "History backfill days"
         }
       }
@@ -90,6 +91,21 @@
       },
       "next_fetch": {
         "name": "Next data fetch"
+      },
+      "hourly_feedin": {
+        "name": "Hourly feedin"
+      },
+      "daily_feedin": {
+        "name": "Daily feedin"
+      },
+      "15min_value": {
+        "name": "15-minute consumption"
+      },
+      "15min_feedin": {
+        "name": "15-minute feedin"
+      },
+      "history_last_15min_point": {
+        "name": "Last 15-minute history point"
       }
     }
   }

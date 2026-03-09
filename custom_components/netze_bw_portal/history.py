@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 
 from .const import (
+    CONF_ENABLE_15MIN_HISTORY,
     CONF_ENABLE_DAILY_HISTORY,
     CONF_ENABLE_HOURLY_HISTORY,
     CONF_HISTORY_BACKFILL_DAYS,
@@ -21,6 +22,7 @@ from .const import (
     HISTORY_DAYS,
     HISTORY_RECHECK_DAYS,
     HOURLY_FETCH_DELAY_SECONDS,
+    MEASUREMENT_FILTER_15MIN,
     MEASUREMENT_FILTER_DAY,
     MEASUREMENT_FILTER_HOUR,
     PORTAL_TIMEZONE,
@@ -94,6 +96,7 @@ class NetzeBwPortalHistoryManager:
 
         daily_enabled = bool(options.get(CONF_ENABLE_DAILY_HISTORY, True))
         hourly_enabled = bool(options.get(CONF_ENABLE_HOURLY_HISTORY, True))
+        fifteenmin_enabled = bool(options.get(CONF_ENABLE_15MIN_HISTORY, False))
         backfill_days = int(options.get(CONF_HISTORY_BACKFILL_DAYS, HISTORY_DAYS))
 
         now = dt_util.utcnow()
@@ -107,10 +110,12 @@ class NetzeBwPortalHistoryManager:
                 # ---- load fetched-date sets from store ----
                 daily_fetched = _load_date_set(stored_meter, "daily_fetched_dates")
                 hourly_fetched = _load_date_set(stored_meter, "hourly_fetched_dates")
+                fifteenmin_fetched = _load_date_set(stored_meter, "fifteenmin_fetched_dates")
 
                 # Prune dates older than the backfill window
                 daily_fetched = prune_dates(daily_fetched, backfill_days, today)
                 hourly_fetched = prune_dates(hourly_fetched, backfill_days, today)
+                fifteenmin_fetched = prune_dates(fifteenmin_fetched, backfill_days, today)
 
                 daily_series: MeasurementSeries | None = None
                 hourly_series: MeasurementSeries | None = None
@@ -173,9 +178,49 @@ class NetzeBwPortalHistoryManager:
                             if latest is not None:
                                 snapshot.latest_hourly_value = latest.value
 
+                # ---- 15-minute ----
+                fifteenmin_series: MeasurementSeries | None = None
+                if fifteenmin_enabled:
+                    exp_15min = expected_hourly_dates(now, backfill_days)
+                    fifteenmin_todo = missing_dates(exp_15min, fifteenmin_fetched)
+
+                    if fifteenmin_todo:
+                        all_15min_points: list[MeasurementPoint] = []
+                        unit_15min: str | None = None
+
+                        for i, target_date in enumerate(sorted(fifteenmin_todo)):
+                            if i > 0:
+                                await asyncio.sleep(HOURLY_FETCH_DELAY_SECONDS)
+
+                            day_series = await self._async_fetch_15min_for_date(
+                                meter_id, history_value_type, target_date
+                            )
+                            if day_series and day_series.points:
+                                all_15min_points.extend(day_series.points)
+                                if unit_15min is None:
+                                    unit_15min = day_series.unit
+                                fifteenmin_fetched.add(target_date)
+
+                        if all_15min_points:
+                            all_15min_points.sort(key=lambda p: p.start_datetime)
+                            fifteenmin_series = MeasurementSeries(
+                                meter_id=meter_id,
+                                value_type=history_value_type,
+                                interval=MEASUREMENT_FILTER_15MIN,
+                                points=all_15min_points,
+                                unit=unit_15min,
+                            )
+                            await self._async_push_statistics(
+                                snapshot.meter, fifteenmin_series
+                            )
+                            latest_15min = _latest_point(fifteenmin_series)
+                            if latest_15min is not None:
+                                snapshot.latest_15min_value = latest_15min.value
+
                 # ---- Persist fetched-date sets ----
                 stored_meter["daily_fetched_dates"] = _save_date_set(daily_fetched)
                 stored_meter["hourly_fetched_dates"] = _save_date_set(hourly_fetched)
+                stored_meter["fifteenmin_fetched_dates"] = _save_date_set(fifteenmin_fetched)
 
                 last_backfill = dt_util.utcnow()
                 stored_meter["last_backfill"] = _dt_as_iso(last_backfill)
@@ -183,6 +228,7 @@ class NetzeBwPortalHistoryManager:
                 # ---- Compute last points for diagnostics ----
                 last_daily_point = _last_point_dt(daily_series)
                 last_hourly_point = _last_point_dt(hourly_series)
+                last_15min_point = _last_point_dt(fifteenmin_series)
 
                 history_state = compute_history_state(
                     now=now,
@@ -194,6 +240,9 @@ class NetzeBwPortalHistoryManager:
                     last_backfill=last_backfill,
                     last_daily_point=last_daily_point,
                     last_hourly_point=last_hourly_point,
+                    fifteenmin_fetched_dates=fifteenmin_fetched,
+                    fifteenmin_enabled=fifteenmin_enabled,
+                    last_15min_point=last_15min_point,
                 )
             except Exception as err:
                 _LOGGER.warning(
@@ -206,6 +255,7 @@ class NetzeBwPortalHistoryManager:
             snapshot.history_status = history_state.status
             snapshot.history_last_daily_point = history_state.last_daily_point
             snapshot.history_last_hourly_point = history_state.last_hourly_point
+            snapshot.history_last_15min_point = history_state.last_15min_point
             snapshot.history_last_backfill = history_state.last_backfill
             snapshot.history_open_gaps = len(history_state.open_gaps)
 
@@ -260,6 +310,23 @@ class NetzeBwPortalHistoryManager:
             end=end.astimezone(timezone.utc),
         )
 
+    async def _async_fetch_15min_for_date(
+        self,
+        meter_id: str,
+        value_type: str,
+        target_date: date,
+    ) -> MeasurementSeries | None:
+        """Fetch 15-minute data for a single CET calendar day."""
+        start = datetime.combine(target_date, time.min, tzinfo=PORTAL_TZ)
+        end = start + timedelta(days=1)
+        return await self.api.async_fetch_measurement_series(
+            meter_id=meter_id,
+            value_type=value_type,
+            interval=MEASUREMENT_FILTER_15MIN,
+            start=start.astimezone(timezone.utc),
+            end=end.astimezone(timezone.utc),
+        )
+
     # ------------------------------------------------------------------
     # Statistics push
     # ------------------------------------------------------------------
@@ -299,7 +366,12 @@ def _history_value_type(meter: MeterDefinition) -> str:
 
 
 def _statistic_id(meter: MeterDefinition, interval: str) -> str:
-    resolution = "daily" if interval == MEASUREMENT_FILTER_DAY else "hourly"
+    if interval == MEASUREMENT_FILTER_DAY:
+        resolution = "daily"
+    elif interval == MEASUREMENT_FILTER_HOUR:
+        resolution = "hourly"
+    else:
+        resolution = slugify(interval.lower())
     return f"{DOMAIN}:{slugify(f'{meter.id}_{resolution}')}"
 
 
@@ -324,6 +396,9 @@ def _statistics_rows_from_series(series: MeasurementSeries) -> list[StatisticDat
 def _normalize_statistic_start(value: datetime, interval: str) -> datetime:
     """Normalize recorder timestamps to interval boundaries."""
     value = value.astimezone(timezone.utc)
+    if interval == MEASUREMENT_FILTER_15MIN:
+        slot = (value.minute // 15) * 15
+        return value.replace(minute=slot, second=0, microsecond=0)
     return value.replace(minute=0, second=0, microsecond=0)
 
 

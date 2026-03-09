@@ -42,9 +42,11 @@ class MeterSnapshot:
     unit: str | None
     latest_hourly_value: float | None = None
     latest_daily_value: float | None = None
+    latest_15min_value: float | None = None
     history_status: str | None = None
     history_last_daily_point: datetime | None = None
     history_last_hourly_point: datetime | None = None
+    history_last_15min_point: datetime | None = None
     history_last_backfill: datetime | None = None
     history_open_gaps: int = 0
     last_fetch: datetime | None = None
@@ -93,6 +95,7 @@ class HistoryState:
     last_hourly_point: datetime | None
     open_gaps: tuple[HistoryGap, ...] = ()
     last_backfill: datetime | None = None
+    last_15min_point: datetime | None = None
 
 
 @dataclass

@@ -20,7 +20,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import NetzeBwPortalConfigEntry
-from .const import DOMAIN
+from .const import DOMAIN, VALUE_TYPE_FEEDIN
 from .coordinator import NetzeBwPortalCoordinator
 from .models import MeterSnapshot
 
@@ -30,6 +30,7 @@ class NetzeBwSensorDescription(SensorEntityDescription):
     """Description for Netze BW sensor."""
 
     value_fn: Callable[[MeterSnapshot], Any]
+    feedin_translation_key: str | None = None
 
 
 SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
@@ -44,6 +45,7 @@ SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
     NetzeBwSensorDescription(
         key="hourly_consumption",
         translation_key="hourly_consumption",
+        feedin_translation_key="hourly_feedin",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=3,
@@ -52,6 +54,7 @@ SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
     NetzeBwSensorDescription(
         key="daily_consumption",
         translation_key="daily_consumption",
+        feedin_translation_key="daily_feedin",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=3,
@@ -163,6 +166,22 @@ SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda snapshot: snapshot.next_fetch,
     ),
+    NetzeBwSensorDescription(
+        key="15min_value",
+        translation_key="15min_value",
+        feedin_translation_key="15min_feedin",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=3,
+        value_fn=lambda snapshot: snapshot.latest_15min_value,
+    ),
+    NetzeBwSensorDescription(
+        key="history_last_15min_point",
+        translation_key="history_last_15min_point",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: snapshot.history_last_15min_point,
+    ),
 )
 
 
@@ -206,6 +225,13 @@ class NetzeBwPortalSensor(CoordinatorEntity[NetzeBwPortalCoordinator], SensorEnt
         self._attr_unique_id = (
             f"{coordinator.data.account_sub}_{self._meter_id}_{description.key}"
         )
+        if (
+            description.feedin_translation_key is not None
+            and coordinator.data
+            and meter_id in coordinator.data.meters
+            and VALUE_TYPE_FEEDIN in coordinator.data.meters[meter_id].meter.value_types
+        ):
+            self._attr_translation_key = description.feedin_translation_key
 
     @property
     def _snapshot(self) -> MeterSnapshot | None:

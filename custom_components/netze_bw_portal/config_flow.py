@@ -22,6 +22,7 @@ from .api import (
 )
 from .const import (
     CONF_ACCOUNT_SUB,
+    CONF_ENABLE_15MIN_HISTORY,
     CONF_ENABLE_DAILY_HISTORY,
     CONF_ENABLE_HOURLY_HISTORY,
     CONF_HISTORY_BACKFILL_DAYS,
@@ -80,6 +81,7 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_SELECTED_METER_IDS: selected_meter_ids,
                         CONF_ENABLE_DAILY_HISTORY: True,
                         CONF_ENABLE_HOURLY_HISTORY: True,
+                        CONF_ENABLE_15MIN_HISTORY: False,
                         CONF_HISTORY_BACKFILL_DAYS: HISTORY_DAYS,
                     },
                 )
@@ -147,6 +149,10 @@ class NetzeBwPortalOptionsFlow(config_entries.OptionsFlow):
                     vol.Required(
                         CONF_ENABLE_HOURLY_HISTORY,
                         default=self._config_entry.options.get(CONF_ENABLE_HOURLY_HISTORY, True),
+                    ): bool,
+                    vol.Required(
+                        CONF_ENABLE_15MIN_HISTORY,
+                        default=self._config_entry.options.get(CONF_ENABLE_15MIN_HISTORY, False),
                     ): bool,
                     vol.Required(
                         CONF_HISTORY_BACKFILL_DAYS,
