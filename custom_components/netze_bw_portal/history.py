@@ -53,7 +53,7 @@ except ImportError:
 
 _LOGGER = logging.getLogger(__name__)
 
-STORAGE_VERSION = 2
+STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}_history"
 
 PORTAL_TZ = ZoneInfo(PORTAL_TIMEZONE)
