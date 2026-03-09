@@ -112,12 +112,15 @@ class NetzeBwPortalOptionsFlow(config_entries.OptionsFlow):
         """Manage options."""
         errors: dict[str, str] = {}
 
-        runtime_data = self._config_entry.runtime_data
+        runtime_data = getattr(self._config_entry, "runtime_data", None)
 
-        try:
-            meter_choices = await runtime_data.client.async_fetch_ims_meter_choices()
-        except NetzeBwPortalError:
-            meter_choices = {}
+        meter_choices: dict[str, str] = {}
+        if runtime_data is not None:
+            try:
+                meter_choices = await runtime_data.client.async_fetch_ims_meter_choices()
+            except NetzeBwPortalError:
+                errors["base"] = "cannot_connect"
+        else:
             errors["base"] = "cannot_connect"
 
         current_selected = self._config_entry.options.get(CONF_SELECTED_METER_IDS)
