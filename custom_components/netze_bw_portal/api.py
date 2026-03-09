@@ -108,7 +108,7 @@ class NetzeBwPortalApiClient:
 
     async def async_login(self) -> None:
         """Login with username/password through the Auth0 form flow."""
-        _LOGGER.debug("Starting Auth0 login flow")
+        _LOGGER.info("Starting login flow for %s", self._username)
         login_debug: dict[str, str | int] = {}
         try:
             login_entry = await self._session.get(
@@ -117,7 +117,7 @@ class NetzeBwPortalApiClient:
             )
         except Exception as err:
             raise NetzeBwPortalConnectionError("Could not open login entrypoint") from err
-        _LOGGER.debug("Login entrypoint final URL: %s (status %s)", login_entry.url, login_entry.status)
+        _LOGGER.info("Login entrypoint reached: %s (status %s)", login_entry.url.host, login_entry.status)
         login_debug["login_entry_url"] = str(login_entry.url)
         login_debug["login_entry_status"] = login_entry.status
 
@@ -183,7 +183,7 @@ class NetzeBwPortalApiClient:
             )
         except Exception as err:
             raise NetzeBwPortalConnectionError("Could not submit credentials") from err
-        _LOGGER.debug("Auth response status: %s", auth_response.status)
+        _LOGGER.info("Credentials submitted, auth response status: %s", auth_response.status)
         login_debug["auth_response_status"] = auth_response.status
         login_debug["auth_response_url"] = str(auth_response.url)
 
@@ -231,7 +231,7 @@ class NetzeBwPortalApiClient:
                 "User-Agent": self._user_agent,
             },
         )
-        _LOGGER.debug("Resume response final URL: %s status=%s", resume_resp.url, resume_resp.status)
+        _LOGGER.info("Auth resume complete: %s (status %s)", resume_resp.url.host, resume_resp.status)
         login_debug["resume_status"] = resume_resp.status
         login_debug["resume_url"] = str(resume_resp.url)
         for response in [*resume_resp.history, resume_resp]:
@@ -255,7 +255,7 @@ class NetzeBwPortalApiClient:
         for attempt in range(4):
             try:
                 await self.async_get_account_sub(raise_on_unauth=True)
-                _LOGGER.debug("Login successful on attempt %d", attempt)
+                _LOGGER.info("Login successful on attempt %d", attempt)
                 return
             except NetzeBwPortalAuthError as err:
                 last_err = err

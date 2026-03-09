@@ -64,4 +64,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: NetzeBwPortalConfigEntr
     """Unload a config entry."""
     from .const import PLATFORMS
 
+    # If setup never completed (e.g. hung during first refresh), platforms were
+    # never registered — skip platform unload to avoid ValueError.
+    if not hasattr(entry, "runtime_data") or entry.runtime_data is None:
+        return True
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
