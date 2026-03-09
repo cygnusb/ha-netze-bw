@@ -1,0 +1,95 @@
+type: custom:plotly-graph
+title: Netze BW – Stündlicher Verbrauch & Einspeisung
+entities:
+  - entity: netze_bw_portal:YOUR_CONSUMPTION_METER_ID_hourly
+    statistic: state
+    period: hour
+    name: Verbrauch
+    type: bar
+    width: 3600000
+    filters:
+      - resample: 1h
+      - map_y: y ?? 0
+    marker:
+      color: rgba(230, 80, 60, 0.8)
+  - entity: netze_bw_portal:YOUR_FEED_IN_METER_ID_hourly
+    statistic: state
+    period: hour
+    name: Einspeisung
+    type: bar
+    width: 3600000
+    filters:
+      - resample: 1h
+      - map_y: y ?? 0
+    marker:
+      color: rgba(60, 180, 80, 0.8)
+hours_to_show: 144
+refresh_interval: 3600
+disable_pinch_to_zoom: true
+layout:
+  barmode: stack
+  bargap: 0
+  bargroupgap: 0
+  hovermode: x unified
+  dragmode: false
+  shapes: |
+    $fn ({ hass, getFromConfig }) => {
+      const sun = hass.states['sun.sun'];
+      const nextRising = new Date(sun.attributes.next_rising);
+      const nextSetting = new Date(sun.attributes.next_setting);
+      const now = new Date();
+      const hoursToShow = getFromConfig("hours_to_show");
+      const start = new Date(now.getTime() - hoursToShow * 3600000);
+      const DAY = 86400000;
+      const numDays = Math.ceil(hoursToShow / 24) + 2;
+      const shapes = [];
+
+      for (let i = 0; i < numDays; i++) {
+        const sunset = new Date(nextSetting.getTime() - i * DAY);
+        const sunrise = new Date(nextRising.getTime() - i * DAY);
+        if (sunset < now && sunrise > start) {
+          shapes.push({
+            type: "rect",
+            xref: "x",
+            yref: "paper",
+            x0: sunset,
+            x1: sunrise,
+            y0: 0,
+            y1: 1,
+            fillcolor: "rgba(70, 90, 120, 0.10)",
+            line: { width: 0 },
+            layer: "below",
+          });
+        }
+      }
+      return shapes;
+    }
+  yaxis:
+    title: kWh
+    ticksuffix: " kWh"
+    fixedrange: true
+    showspikes: true
+    spikemode: across
+    spikesnap: cursor
+    spikecolor: rgba(180, 180, 180, 0.5)
+    spikedash: dot
+    spikethickness: 1
+  xaxis:
+    tickformat: "%d.%m"
+    fixedrange: true
+    showspikes: true
+    spikemode: across
+    spikesnap: cursor
+    spikecolor: rgba(180, 180, 180, 0.5)
+    spikedash: dot
+    spikethickness: 1
+  legend:
+    orientation: h
+    "y": -0.2
+  margin:
+    t: 30
+    b: 60
+config:
+  scrollZoom: false
+  displayModeBar: false
+  doubleClick: false

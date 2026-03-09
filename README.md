@@ -67,6 +67,16 @@ Add these as an **Electricity grid** or **Solar panels** source in **Settings â†
 
 On first setup, the integration fetches all 30 days of daily history (one API call) and all 30 days of hourly history (one call per day with a short delay). Subsequent polls only re-fetch the last 2 days (recheck window, because data arrives with a delay) plus any gaps.
 
+## Plotly Graph Example
+
+A ready-to-use [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-graph-card) example is included in [`examples/plotly_netze_bw.yaml`](examples/plotly_netze_bw.yaml). It shows hourly consumption and feed-in as stacked bars with night-time shading from the `sun.sun` integration.
+
+<p align="center">
+  <img src="examples/plotly.png" alt="Plotly graph showing hourly consumption and feed-in with night shading" width="700">
+</p>
+
+Replace `YOUR_CONSUMPTION_METER_ID` and `YOUR_FEED_IN_METER_ID` with your actual meter IDs from the sensor entity names.
+
 ## Installation
 
 ### HACS (recommended)
