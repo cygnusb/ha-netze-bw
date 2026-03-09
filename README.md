@@ -11,29 +11,61 @@
 [![License][license-badge]][license-url]
 [![GitHub commit activity][commits-badge]][commits-url]
 
-Home Assistant integration for the [Netze BW portal](https://meine.netze-bw.de) with automatic smart meter discovery and energy consumption/feed-in sensors.
+Home Assistant integration for the [Netze BW portal](https://meine.netze-bw.de) — automatic smart meter discovery, real-time sensors, and up to 30 days of energy history for the Energy Dashboard.
 
 ## Features
 
 - Authenticates via username/password against the Netze BW Auth0 login
 - Auto-discovers all active IMS (intelligent metering system) meters
-- Creates sensors per meter:
-
-| Sensor | Description | Unit |
-|---|---|---|
-| Daily energy | Last reported daily consumption or feed-in | kWh |
-| Total reading | Current meter reading | kWh |
-| 7 day sum | Sum of the last 7 days | kWh |
-| 30 day sum | Sum of the last 30 days | kWh |
-| Last measurement date | Timestamp of last measurement | - |
-| Serial number | Meter serial number (diagnostic) | - |
-| Metering code | Metering code (diagnostic) | - |
-| SMGW ID | Smart meter gateway ID (diagnostic) | - |
-| Value types | Available value types (diagnostic) | - |
-
-- Options flow to select which meters to track
-- Fixed polling interval of 12 hours to match the low-frequency availability of portal data
+- Polls every **6 hours** for fresh data
+- Backfills up to **30 days** of daily and hourly consumption history into the HA Energy Dashboard (Long-Term Statistics)
+- Incremental history updates — only missing days are re-fetched, not the full window every cycle
 - Supports both consumption and feed-in (Einspeisung) meters
+
+## Sensors
+
+Each discovered meter gets the following sensors:
+
+### Energy sensors
+
+| Sensor | Description | Unit | State class |
+|---|---|---|---|
+| Daily energy | Last reported daily consumption or feed-in from the portal API | kWh | — |
+| Daily consumption | Latest daily value from the backfilled history | kWh | Measurement |
+| Hourly consumption | Latest hourly value from the backfilled history | kWh | Measurement |
+| Total reading | Current cumulative meter reading | kWh | Total increasing |
+| 7 day sum | Sum of the last 7 days | kWh | — |
+| 30 day sum | Sum of the last 30 days | kWh | — |
+| Last measurement date | Timestamp of the last measurement point | — | — |
+
+### Diagnostic sensors
+
+| Sensor | Description |
+|---|---|
+| Serial number | Meter serial number |
+| Metering code | MeLo-ID (formatted in groups of 4) |
+| SMGW ID | Smart meter gateway ID |
+| Value types | Available measurement value types |
+| History status | `ok` / `gaps` / `error` / `disabled` |
+| Last daily history point | Timestamp of the newest daily statistic pushed to HA |
+| Last hourly history point | Timestamp of the newest hourly statistic pushed to HA |
+| Last history backfill | Timestamp of the last successful history fetch |
+| Open history gaps | Number of date gaps still missing from the expected window |
+| Last data fetch | Timestamp of the last coordinator update |
+| Next data fetch | Scheduled time of the next coordinator update |
+
+## Energy Dashboard
+
+Daily and hourly history data is exported as **Long-Term Statistics** under the IDs:
+
+```
+netze_bw_portal:<meter_id>_daily
+netze_bw_portal:<meter_id>_hourly
+```
+
+Add these as an **Electricity grid** or **Solar panels** source in **Settings → Energy** to see up to 30 days of consumption or feed-in history.
+
+On first setup, the integration fetches all 30 days of daily history (one API call) and all 30 days of hourly history (one call per day with a short delay). Subsequent polls only re-fetch the last 2 days (recheck window, because data arrives with a delay) plus any gaps.
 
 ## Installation
 
@@ -55,19 +87,20 @@ Home Assistant integration for the [Netze BW portal](https://meine.netze-bw.de) 
 1. Go to **Settings** > **Devices & Services**
 2. Click **Add Integration** and search for **Netze BW Portal**
 3. Enter your meine.netze-bw.de email and password
-4. The integration will discover your meters and create sensors automatically
+4. The integration discovers your meters and creates sensors automatically
 
 ### Options
 
-After setup, click **Configure** on the integration to:
+Click **Configure** on the integration card to adjust:
 
-- Select which meters to enable/disable
-
-Data is refreshed automatically every 12 hours.
+| Option | Default | Description |
+|---|---|---|
+| Enabled meters | all | Select which meters to track |
+| Enable daily history backfill | on | Push daily statistics to the Energy Dashboard |
+| Enable hourly history backfill | on | Push hourly statistics to the Energy Dashboard |
+| History backfill days | 30 | How many days of history to maintain (1–30) |
 
 ## Debug Logging
-
-To enable debug logging, add the following to your `configuration.yaml`:
 
 ```yaml
 logger:
@@ -78,8 +111,9 @@ logger:
 ## Known Limitations
 
 - Accounts with MFA (multi-factor authentication) or additional interactive login steps are not supported
-- The integration uses the shared Home Assistant HTTP session; other integrations' cookies do not interfere, but the session is not isolated
-- Data is refreshed every 12 hours; daily values in the portal itself may still be delayed by up to 24 hours
+- Portal data for a given day is typically available with a delay of **1–2 days** — the integration automatically re-checks the last 2 days on every poll cycle to pick up late-arriving data
+- Hourly history from the portal is available approximately 6 hours after the end of each hour
+- The initial full 30-day hourly backfill makes one API request per day (30 requests total) with a 0.3 s delay between them; this runs once on first setup and after a storage schema migration
 
 ## Requirements
 
