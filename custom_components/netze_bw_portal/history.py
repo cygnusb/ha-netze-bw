@@ -117,6 +117,15 @@ class NetzeBwPortalHistoryManager:
                 hourly_fetched = prune_dates(hourly_fetched, backfill_days, today)
                 fifteenmin_fetched = prune_dates(fifteenmin_fetched, backfill_days, today)
 
+                _LOGGER.debug(
+                    "Meter %s: value_type=%s daily_enabled=%s hourly_enabled=%s "
+                    "fifteenmin_enabled=%s backfill_days=%d "
+                    "daily_fetched=%d hourly_fetched=%d fifteenmin_fetched=%d",
+                    meter_id, history_value_type,
+                    daily_enabled, hourly_enabled, fifteenmin_enabled, backfill_days,
+                    len(daily_fetched), len(hourly_fetched), len(fifteenmin_fetched),
+                )
+
                 daily_series: MeasurementSeries | None = None
                 hourly_series: MeasurementSeries | None = None
 
@@ -124,6 +133,7 @@ class NetzeBwPortalHistoryManager:
                 if daily_enabled:
                     exp_daily = expected_daily_dates(now, backfill_days)
                     daily_todo = missing_dates(exp_daily, daily_fetched)
+                    _LOGGER.debug("Meter %s: daily todo=%d dates", meter_id, len(daily_todo))
 
                     if daily_todo:
                         daily_series = await self._async_fetch_daily(
@@ -132,6 +142,10 @@ class NetzeBwPortalHistoryManager:
                         if daily_series and daily_series.points:
                             # Mark all dates in the expected window as fetched
                             daily_fetched |= exp_daily
+                            _LOGGER.debug(
+                                "Meter %s: pushing %d daily stats rows",
+                                meter_id, len(daily_series.points),
+                            )
                             await self._async_push_statistics(
                                 snapshot.meter, daily_series
                             )
@@ -144,6 +158,7 @@ class NetzeBwPortalHistoryManager:
                 if hourly_enabled:
                     exp_hourly = expected_hourly_dates(now, backfill_days)
                     hourly_todo = missing_dates(exp_hourly, hourly_fetched)
+                    _LOGGER.debug("Meter %s: hourly todo=%d dates", meter_id, len(hourly_todo))
 
                     if hourly_todo:
                         all_points: list[MeasurementPoint] = []
@@ -152,7 +167,10 @@ class NetzeBwPortalHistoryManager:
                         for i, target_date in enumerate(sorted(hourly_todo)):
                             if i > 0:
                                 await asyncio.sleep(HOURLY_FETCH_DELAY_SECONDS)
-
+                            _LOGGER.debug(
+                                "Meter %s: fetching hourly for %s (%d/%d)",
+                                meter_id, target_date, i + 1, len(hourly_todo),
+                            )
                             day_series = await self._async_fetch_hourly_for_date(
                                 meter_id, history_value_type, target_date
                             )
@@ -161,6 +179,12 @@ class NetzeBwPortalHistoryManager:
                                 if unit is None:
                                     unit = day_series.unit
                                 hourly_fetched.add(target_date)
+                                _LOGGER.debug(
+                                    "Meter %s: hourly %s → %d points",
+                                    meter_id, target_date, len(day_series.points),
+                                )
+                            else:
+                                _LOGGER.debug("Meter %s: hourly %s → no data", meter_id, target_date)
 
                         if all_points:
                             all_points.sort(key=lambda p: p.start_datetime)
@@ -170,6 +194,10 @@ class NetzeBwPortalHistoryManager:
                                 interval=MEASUREMENT_FILTER_HOUR,
                                 points=all_points,
                                 unit=unit,
+                            )
+                            _LOGGER.debug(
+                                "Meter %s: pushing %d hourly stats rows",
+                                meter_id, len(all_points),
                             )
                             await self._async_push_statistics(
                                 snapshot.meter, hourly_series
@@ -183,6 +211,7 @@ class NetzeBwPortalHistoryManager:
                 if fifteenmin_enabled:
                     exp_15min = expected_hourly_dates(now, backfill_days)
                     fifteenmin_todo = missing_dates(exp_15min, fifteenmin_fetched)
+                    _LOGGER.debug("Meter %s: 15min todo=%d dates", meter_id, len(fifteenmin_todo))
 
                     if fifteenmin_todo:
                         all_15min_points: list[MeasurementPoint] = []
@@ -191,7 +220,10 @@ class NetzeBwPortalHistoryManager:
                         for i, target_date in enumerate(sorted(fifteenmin_todo)):
                             if i > 0:
                                 await asyncio.sleep(HOURLY_FETCH_DELAY_SECONDS)
-
+                            _LOGGER.debug(
+                                "Meter %s: fetching 15min for %s (%d/%d)",
+                                meter_id, target_date, i + 1, len(fifteenmin_todo),
+                            )
                             day_series = await self._async_fetch_15min_for_date(
                                 meter_id, history_value_type, target_date
                             )
@@ -200,6 +232,12 @@ class NetzeBwPortalHistoryManager:
                                 if unit_15min is None:
                                     unit_15min = day_series.unit
                                 fifteenmin_fetched.add(target_date)
+                                _LOGGER.debug(
+                                    "Meter %s: 15min %s → %d points",
+                                    meter_id, target_date, len(day_series.points),
+                                )
+                            else:
+                                _LOGGER.debug("Meter %s: 15min %s → no data", meter_id, target_date)
 
                         if all_15min_points:
                             all_15min_points.sort(key=lambda p: p.start_datetime)
@@ -209,6 +247,10 @@ class NetzeBwPortalHistoryManager:
                                 interval=MEASUREMENT_FILTER_15MIN,
                                 points=all_15min_points,
                                 unit=unit_15min,
+                            )
+                            _LOGGER.debug(
+                                "Meter %s: pushing %d 15min stats rows",
+                                meter_id, len(all_15min_points),
                             )
                             await self._async_push_statistics(
                                 snapshot.meter, fifteenmin_series

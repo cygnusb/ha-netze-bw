@@ -108,7 +108,7 @@ class NetzeBwPortalApiClient:
 
     async def async_login(self) -> None:
         """Login with username/password through the Auth0 form flow."""
-        _LOGGER.info("Starting login flow for %s", self._username)
+        _LOGGER.debug("Starting login flow for %s", self._username)
         login_debug: dict[str, str | int] = {}
         try:
             login_entry = await self._session.get(
@@ -117,7 +117,7 @@ class NetzeBwPortalApiClient:
             )
         except Exception as err:
             raise NetzeBwPortalConnectionError("Could not open login entrypoint") from err
-        _LOGGER.info("Login entrypoint reached: %s (status %s)", login_entry.url.host, login_entry.status)
+        _LOGGER.debug("Login entrypoint reached: %s (status %s)", login_entry.url.host, login_entry.status)
         login_debug["login_entry_url"] = str(login_entry.url)
         login_debug["login_entry_status"] = login_entry.status
 
@@ -183,7 +183,7 @@ class NetzeBwPortalApiClient:
             )
         except Exception as err:
             raise NetzeBwPortalConnectionError("Could not submit credentials") from err
-        _LOGGER.info("Credentials submitted, auth response status: %s", auth_response.status)
+        _LOGGER.debug("Credentials submitted, auth response status: %s", auth_response.status)
         login_debug["auth_response_status"] = auth_response.status
         login_debug["auth_response_url"] = str(auth_response.url)
 
@@ -231,7 +231,7 @@ class NetzeBwPortalApiClient:
                 "User-Agent": self._user_agent,
             },
         )
-        _LOGGER.info("Auth resume complete: %s (status %s)", resume_resp.url.host, resume_resp.status)
+        _LOGGER.debug("Auth resume complete: %s (status %s)", resume_resp.url.host, resume_resp.status)
         login_debug["resume_status"] = resume_resp.status
         login_debug["resume_url"] = str(resume_resp.url)
         for response in [*resume_resp.history, resume_resp]:
@@ -255,7 +255,7 @@ class NetzeBwPortalApiClient:
         for attempt in range(4):
             try:
                 await self.async_get_account_sub(raise_on_unauth=True)
-                _LOGGER.info("Login successful on attempt %d", attempt)
+                _LOGGER.debug("Login successful on attempt %d", attempt)
                 return
             except NetzeBwPortalAuthError as err:
                 last_err = err
@@ -295,22 +295,28 @@ class NetzeBwPortalApiClient:
     async def async_fetch_data(self, selected_meter_ids: set[str] | None = None) -> CoordinatorData:
         """Fetch all meter snapshots for selected IMS meters."""
         account_sub = await self.async_ensure_login()
+        _LOGGER.debug("Fetching installations list")
         installations = await self._get_json(f"{BASE_URL}/bff/api/kuposervice/v1/portal/installations")
 
         meter_defs = self._extract_ims_meter_definitions(installations)
         if selected_meter_ids is not None:
             meter_defs = [meter for meter in meter_defs if meter.id in selected_meter_ids]
+        _LOGGER.debug("Found %d IMS meter(s) to load", len(meter_defs))
 
         snapshots: dict[str, MeterSnapshot] = {}
         errors: dict[str, str] = {}
 
         async def _load_meter(meter: MeterDefinition) -> None:
+            _LOGGER.debug("Loading snapshot for meter %s (%s)", meter.id, meter.friendly_name)
             try:
                 snapshots[meter.id] = await self._fetch_meter_snapshot(meter)
+                _LOGGER.debug("Snapshot loaded for meter %s", meter.id)
             except NetzeBwPortalError as err:
+                _LOGGER.debug("Snapshot failed for meter %s: %s", meter.id, err)
                 errors[meter.id] = str(err)
 
         await asyncio.gather(*(_load_meter(meter) for meter in meter_defs))
+        _LOGGER.debug("All meters loaded (snapshots=%d, errors=%d)", len(snapshots), len(errors))
 
         return CoordinatorData(account_sub=account_sub, meters=snapshots, errors=errors)
 
@@ -322,6 +328,7 @@ class NetzeBwPortalApiClient:
         return {meter.id: meter.friendly_name for meter in meter_defs}
 
     async def _fetch_meter_snapshot(self, meter: MeterDefinition) -> MeterSnapshot:
+        _LOGGER.debug("Fetching details for meter %s", meter.id)
         details_json = await self._get_json(f"{BASE_URL}/bff/api/imsservice/v1/meters/byId/{meter.id}")
 
         details = MeterDetails(
@@ -333,6 +340,7 @@ class NetzeBwPortalApiClient:
 
         value_type_daily, value_type_total, last_endpoint = self._value_types_for_meter(meter)
 
+        _LOGGER.debug("Fetching last value for meter %s (endpoint=%s)", meter.id, last_endpoint)
         last_data = await self._get_json(f"{BASE_URL}/bff/api/imsservice/v1/meters/{meter.id}/{last_endpoint}")
         daily_value = self._to_float(last_data.get("value"))
         last_date = self._parse_datetime(last_data.get("date"))
@@ -378,6 +386,10 @@ class NetzeBwPortalApiClient:
         end: datetime,
     ) -> MeasurementSeries:
         """Fetch a generic measurement series."""
+        _LOGGER.debug(
+            "Fetching measurement series: meter=%s valueType=%s filter=%s start=%s end=%s",
+            meter_id, value_type, interval, self._isoformat(start), self._isoformat(end),
+        )
         payload = await self._get_json(
             f"{BASE_URL}/bff/api/imsservice/v1/meters/{meter_id}/measurements",
             params={
@@ -387,12 +399,17 @@ class NetzeBwPortalApiClient:
                 "filter": interval,
             },
         )
-        return self._measurement_series_from_payload(
+        series = self._measurement_series_from_payload(
             meter_id=meter_id,
             value_type=value_type,
             interval=interval,
             payload=payload,
         )
+        _LOGGER.debug(
+            "Measurement series fetched: meter=%s filter=%s points=%d",
+            meter_id, interval, len(series.points),
+        )
+        return series
 
     @classmethod
     def _measurement_series_from_payload(

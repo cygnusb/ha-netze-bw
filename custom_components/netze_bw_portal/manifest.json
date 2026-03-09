@@ -6,6 +6,6 @@
   "documentation": "https://github.com/cygnusb/ha-netze-bw",
   "integration_type": "service",
   "iot_class": "cloud_polling",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "loggers": ["custom_components.netze_bw_portal"]
 }
