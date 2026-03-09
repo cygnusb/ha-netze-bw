@@ -8,6 +8,17 @@
           "username": "Username",
           "password": "Password"
         }
+      },
+      "meters": {
+        "title": "Meter selection & history",
+        "description": "Select which meters to monitor and configure history backfill.",
+        "data": {
+          "selected_meter_ids": "Enabled meters",
+          "enable_daily_history": "Enable daily history backfill",
+          "enable_hourly_history": "Enable hourly history backfill",
+          "enable_15min_history": "Enable 15-minute history backfill",
+          "history_backfill_days": "History backfill days"
+        }
       }
     },
     "error": {

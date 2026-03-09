@@ -87,18 +87,22 @@ On first setup, the integration fetches all 30 days of daily history (one API ca
 1. Go to **Settings** > **Devices & Services**
 2. Click **Add Integration** and search for **Netze BW Portal**
 3. Enter your meine.netze-bw.de email and password
-4. The integration discovers your meters and creates sensors automatically
+4. Select which meters to monitor and configure history options
+5. The integration creates sensors automatically
 
-### Options
+### Setup options
 
-Click **Configure** on the integration card to adjust:
+Configured during initial setup (and adjustable later via **Configure**):
 
 | Option | Default | Description |
 |---|---|---|
 | Enabled meters | all | Select which meters to track |
 | Enable daily history backfill | on | Push daily statistics to the Energy Dashboard |
 | Enable hourly history backfill | on | Push hourly statistics to the Energy Dashboard |
+| Enable 15-minute history backfill | off | Push 15-minute statistics to the Energy Dashboard |
 | History backfill days | 30 | How many days of history to maintain (1–30) |
+
+All options can be changed at any time by clicking **Configure** on the integration card.
 
 ## Debug Logging
 

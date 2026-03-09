@@ -345,23 +345,26 @@ class NetzeBwPortalApiClient:
         daily_value = self._to_float(last_data.get("value"))
         last_date = self._parse_datetime(last_data.get("date"))
 
-        total_measurement = await self.async_fetch_measurement_series(
-            meter_id=meter.id,
-            value_type=value_type_total,
-            interval=MEASUREMENT_FILTER_DAY,
-            start=datetime.now(tz=timezone.utc) - timedelta(days=HISTORY_DAYS),
-            end=datetime.now(tz=timezone.utc),
+        now = datetime.now(tz=timezone.utc)
+        history_start = now - timedelta(days=HISTORY_DAYS)
+        total_measurement, daily_measurement = await asyncio.gather(
+            self.async_fetch_measurement_series(
+                meter_id=meter.id,
+                value_type=value_type_total,
+                interval=MEASUREMENT_FILTER_DAY,
+                start=history_start,
+                end=now,
+            ),
+            self.async_fetch_measurement_series(
+                meter_id=meter.id,
+                value_type=value_type_daily,
+                interval=MEASUREMENT_FILTER_DAY,
+                start=history_start,
+                end=now,
+            ),
         )
         total_values = [point.value for point in total_measurement.points if point.value is not None]
         total_reading = total_values[-1] if total_values else None
-
-        daily_measurement = await self.async_fetch_measurement_series(
-            meter_id=meter.id,
-            value_type=value_type_daily,
-            interval=MEASUREMENT_FILTER_DAY,
-            start=datetime.now(tz=timezone.utc) - timedelta(days=HISTORY_DAYS),
-            end=datetime.now(tz=timezone.utc),
-        )
         daily_values = [point.value for point in daily_measurement.points if point.value is not None]
         sum_30d = sum(daily_values[-30:]) if daily_values else None
         sum_7d = sum(daily_values[-7:]) if daily_values else None

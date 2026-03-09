@@ -40,8 +40,14 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     MINOR_VERSION = 1
 
+    def __init__(self) -> None:
+        self._username: str = ""
+        self._password: str = ""
+        self._account_sub: str = ""
+        self._meter_choices: dict[str, str] = {}
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Handle the user step."""
+        """Handle the user step (credentials)."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -68,23 +74,12 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(account_sub)
                 self._abort_if_unique_id_configured()
 
-                selected_meter_ids = sorted(meter_choices.keys())
+                self._username = user_input[CONF_USERNAME]
+                self._password = user_input[CONF_PASSWORD]
+                self._account_sub = account_sub
+                self._meter_choices = meter_choices
 
-                return self.async_create_entry(
-                    title=user_input[CONF_USERNAME],
-                    data={
-                        CONF_USERNAME: user_input[CONF_USERNAME],
-                        CONF_PASSWORD: user_input[CONF_PASSWORD],
-                        CONF_ACCOUNT_SUB: account_sub,
-                    },
-                    options={
-                        CONF_SELECTED_METER_IDS: selected_meter_ids,
-                        CONF_ENABLE_DAILY_HISTORY: True,
-                        CONF_ENABLE_HOURLY_HISTORY: True,
-                        CONF_ENABLE_15MIN_HISTORY: False,
-                        CONF_HISTORY_BACKFILL_DAYS: HISTORY_DAYS,
-                    },
-                )
+                return await self.async_step_meters()
 
         return self.async_show_form(
             step_id="user",
@@ -95,6 +90,46 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    async def async_step_meters(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Handle the meter selection and history options step."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title=self._username,
+                data={
+                    CONF_USERNAME: self._username,
+                    CONF_PASSWORD: self._password,
+                    CONF_ACCOUNT_SUB: self._account_sub,
+                },
+                options={
+                    CONF_SELECTED_METER_IDS: user_input[CONF_SELECTED_METER_IDS],
+                    CONF_ENABLE_DAILY_HISTORY: user_input[CONF_ENABLE_DAILY_HISTORY],
+                    CONF_ENABLE_HOURLY_HISTORY: user_input[CONF_ENABLE_HOURLY_HISTORY],
+                    CONF_ENABLE_15MIN_HISTORY: user_input[CONF_ENABLE_15MIN_HISTORY],
+                    CONF_HISTORY_BACKFILL_DAYS: user_input[CONF_HISTORY_BACKFILL_DAYS],
+                },
+            )
+
+        all_meter_ids = sorted(self._meter_choices.keys())
+
+        return self.async_show_form(
+            step_id="meters",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SELECTED_METER_IDS,
+                        default=all_meter_ids,
+                    ): cv.multi_select(self._meter_choices),
+                    vol.Required(CONF_ENABLE_DAILY_HISTORY, default=True): bool,
+                    vol.Required(CONF_ENABLE_HOURLY_HISTORY, default=True): bool,
+                    vol.Required(CONF_ENABLE_15MIN_HISTORY, default=False): bool,
+                    vol.Required(
+                        CONF_HISTORY_BACKFILL_DAYS,
+                        default=HISTORY_DAYS,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
+                }
+            ),
         )
 
     @staticmethod

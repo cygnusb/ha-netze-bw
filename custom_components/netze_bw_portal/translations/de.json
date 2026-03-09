@@ -8,6 +8,17 @@
           "username": "Benutzername",
           "password": "Passwort"
         }
+      },
+      "meters": {
+        "title": "Zählerauswahl & Historie",
+        "description": "Wähle die zu überwachenden Zähler und konfiguriere die Historie.",
+        "data": {
+          "selected_meter_ids": "Aktivierte Zähler",
+          "enable_daily_history": "Tägliche Historie abrufen",
+          "enable_hourly_history": "Stündliche Historie abrufen",
+          "enable_15min_history": "15-Minuten-Verlauf aktivieren",
+          "history_backfill_days": "Historie-Rückfüllung (Tage)"
+        }
       }
     },
     "error": {
