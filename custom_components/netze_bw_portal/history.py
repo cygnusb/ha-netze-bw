@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import asyncio
+from datetime import date, datetime, time, timedelta, timezone
 import logging
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -15,17 +17,29 @@ from .const import (
     CONF_ENABLE_DAILY_HISTORY,
     CONF_ENABLE_HOURLY_HISTORY,
     CONF_HISTORY_BACKFILL_DAYS,
-    CONF_HOURLY_BACKFILL_RECHECK_DAYS,
     DOMAIN,
     HISTORY_DAYS,
-    HISTORY_HOURLY_PRIORITY_DAYS,
+    HISTORY_RECHECK_DAYS,
+    HOURLY_FETCH_DELAY_SECONDS,
     MEASUREMENT_FILTER_DAY,
     MEASUREMENT_FILTER_HOUR,
+    PORTAL_TIMEZONE,
     VALUE_TYPE_CONSUMPTION,
     VALUE_TYPE_FEEDIN,
 )
-from .history_logic import compute_history_state
-from .models import CoordinatorData, MeasurementSeries, MeterDefinition
+from .history_logic import (
+    compute_history_state,
+    expected_daily_dates,
+    expected_hourly_dates,
+    missing_dates,
+    prune_dates,
+)
+from .models import (
+    CoordinatorData,
+    MeasurementPoint,
+    MeasurementSeries,
+    MeterDefinition,
+)
 
 try:
     from homeassistant.components.recorder.statistics import (
@@ -39,8 +53,10 @@ except ImportError:
 
 _LOGGER = logging.getLogger(__name__)
 
-STORAGE_VERSION = 1
+STORAGE_VERSION = 2
 STORAGE_KEY = f"{DOMAIN}_history"
+
+PORTAL_TZ = ZoneInfo(PORTAL_TIMEZONE)
 
 
 class NetzeBwPortalHistoryManager:
@@ -54,10 +70,16 @@ class NetzeBwPortalHistoryManager:
         self._data: dict[str, Any] = {"entries": {}}
 
     async def async_initialize(self) -> None:
-        """Load persisted metadata."""
+        """Load persisted metadata, migrating from v1 if needed."""
         stored = await self._store.async_load()
         if isinstance(stored, dict):
             self._data = stored
+        # Ensure structure exists
+        self._data.setdefault("entries", {})
+
+    # ------------------------------------------------------------------
+    # Public update entry point
+    # ------------------------------------------------------------------
 
     async def async_update_histories(
         self,
@@ -65,57 +87,118 @@ class NetzeBwPortalHistoryManager:
         options: dict[str, Any],
     ) -> None:
         """Fetch and persist history state for all meters."""
-        entry_state = self._data.setdefault("entries", {}).setdefault(self.entry_id, {"meters": {}})
+        entry_state = self._data.setdefault("entries", {}).setdefault(
+            self.entry_id, {"meters": {}}
+        )
         meter_state: dict[str, Any] = entry_state.setdefault("meters", {})
 
         daily_enabled = bool(options.get(CONF_ENABLE_DAILY_HISTORY, True))
         hourly_enabled = bool(options.get(CONF_ENABLE_HOURLY_HISTORY, True))
         backfill_days = int(options.get(CONF_HISTORY_BACKFILL_DAYS, HISTORY_DAYS))
-        hourly_recheck_days = int(
-            options.get(CONF_HOURLY_BACKFILL_RECHECK_DAYS, HISTORY_HOURLY_PRIORITY_DAYS)
-        )
 
         now = dt_util.utcnow()
+        today = now.astimezone(PORTAL_TZ).date()
+
         for meter_id, snapshot in coordinator_data.meters.items():
             stored_meter = meter_state.setdefault(meter_id, {})
             try:
                 history_value_type = _history_value_type(snapshot.meter)
 
-                daily_series = None
-                hourly_series = None
+                # ---- load fetched-date sets from store ----
+                daily_fetched = _load_date_set(stored_meter, "daily_fetched_dates")
+                hourly_fetched = _load_date_set(stored_meter, "hourly_fetched_dates")
 
+                # Prune dates older than the backfill window
+                daily_fetched = prune_dates(daily_fetched, backfill_days, today)
+                hourly_fetched = prune_dates(hourly_fetched, backfill_days, today)
+
+                daily_series: MeasurementSeries | None = None
+                hourly_series: MeasurementSeries | None = None
+
+                # ---- Daily ----
                 if daily_enabled:
-                    daily_series = await self.api.async_fetch_measurement_series(
-                        meter_id=meter_id,
-                        value_type=history_value_type,
-                        interval=MEASUREMENT_FILTER_DAY,
-                        start=now - timedelta(days=backfill_days),
-                        end=now,
-                    )
-                    await self._async_push_statistics(snapshot.meter, daily_series)
+                    exp_daily = expected_daily_dates(now, backfill_days)
+                    daily_todo = missing_dates(exp_daily, daily_fetched)
 
+                    if daily_todo:
+                        daily_series = await self._async_fetch_daily(
+                            meter_id, history_value_type, backfill_days, now
+                        )
+                        if daily_series and daily_series.points:
+                            # Mark all dates in the expected window as fetched
+                            daily_fetched |= exp_daily
+                            await self._async_push_statistics(
+                                snapshot.meter, daily_series
+                            )
+                            # Populate latest value
+                            latest = _latest_point(daily_series)
+                            if latest is not None:
+                                snapshot.latest_daily_value = latest.value
+
+                # ---- Hourly ----
                 if hourly_enabled:
-                    hourly_series = await self.api.async_fetch_measurement_series(
-                        meter_id=meter_id,
-                        value_type=history_value_type,
-                        interval=MEASUREMENT_FILTER_HOUR,
-                        start=now - timedelta(days=hourly_recheck_days),
-                        end=now,
-                    )
-                    await self._async_push_statistics(snapshot.meter, hourly_series)
+                    exp_hourly = expected_hourly_dates(now, backfill_days)
+                    hourly_todo = missing_dates(exp_hourly, hourly_fetched)
+
+                    if hourly_todo:
+                        all_points: list[MeasurementPoint] = []
+                        unit: str | None = None
+
+                        for i, target_date in enumerate(sorted(hourly_todo)):
+                            if i > 0:
+                                await asyncio.sleep(HOURLY_FETCH_DELAY_SECONDS)
+
+                            day_series = await self._async_fetch_hourly_for_date(
+                                meter_id, history_value_type, target_date
+                            )
+                            if day_series and day_series.points:
+                                all_points.extend(day_series.points)
+                                if unit is None:
+                                    unit = day_series.unit
+                                hourly_fetched.add(target_date)
+
+                        if all_points:
+                            all_points.sort(key=lambda p: p.start_datetime)
+                            hourly_series = MeasurementSeries(
+                                meter_id=meter_id,
+                                value_type=history_value_type,
+                                interval=MEASUREMENT_FILTER_HOUR,
+                                points=all_points,
+                                unit=unit,
+                            )
+                            await self._async_push_statistics(
+                                snapshot.meter, hourly_series
+                            )
+                            latest = _latest_point(hourly_series)
+                            if latest is not None:
+                                snapshot.latest_hourly_value = latest.value
+
+                # ---- Persist fetched-date sets ----
+                stored_meter["daily_fetched_dates"] = _save_date_set(daily_fetched)
+                stored_meter["hourly_fetched_dates"] = _save_date_set(hourly_fetched)
 
                 last_backfill = dt_util.utcnow()
+                stored_meter["last_backfill"] = _dt_as_iso(last_backfill)
+
+                # ---- Compute last points for diagnostics ----
+                last_daily_point = _last_point_dt(daily_series)
+                last_hourly_point = _last_point_dt(hourly_series)
+
                 history_state = compute_history_state(
                     now=now,
-                    daily_series=daily_series,
-                    hourly_series=hourly_series,
+                    daily_fetched_dates=daily_fetched,
+                    hourly_fetched_dates=hourly_fetched,
                     daily_enabled=daily_enabled,
                     hourly_enabled=hourly_enabled,
                     backfill_days=backfill_days,
                     last_backfill=last_backfill,
+                    last_daily_point=last_daily_point,
+                    last_hourly_point=last_hourly_point,
                 )
             except Exception as err:
-                _LOGGER.warning("History backfill failed for meter %s: %s", meter_id, err)
+                _LOGGER.warning(
+                    "History backfill failed for meter %s: %s", meter_id, err
+                )
                 snapshot.history_status = "error"
                 stored_meter["status"] = "error"
                 continue
@@ -126,24 +209,60 @@ class NetzeBwPortalHistoryManager:
             snapshot.history_last_backfill = history_state.last_backfill
             snapshot.history_open_gaps = len(history_state.open_gaps)
 
-            stored_meter.update(
-                {
-                    "status": history_state.status,
-                    "last_backfill": _dt_as_iso(last_backfill),
-                    "open_gaps": [
-                        {
-                            "interval": gap.interval,
-                            "start_datetime": _dt_as_iso(gap.start_datetime),
-                            "end_datetime": _dt_as_iso(gap.end_datetime),
-                        }
-                        for gap in history_state.open_gaps
-                    ],
-                    "last_daily_point": _dt_as_iso(history_state.last_daily_point),
-                    "last_hourly_point": _dt_as_iso(history_state.last_hourly_point),
-                }
+            stored_meter["status"] = history_state.status
+
+            _LOGGER.debug(
+                "Meter %s history: status=%s, daily_fetched=%d, hourly_fetched=%d, gaps=%d",
+                meter_id,
+                history_state.status,
+                len(daily_fetched),
+                len(hourly_fetched),
+                len(history_state.open_gaps),
             )
 
         await self._store.async_save(self._data)
+
+    # ------------------------------------------------------------------
+    # Fetching helpers
+    # ------------------------------------------------------------------
+
+    async def _async_fetch_daily(
+        self,
+        meter_id: str,
+        value_type: str,
+        backfill_days: int,
+        now: datetime,
+    ) -> MeasurementSeries | None:
+        """Fetch daily data for the entire backfill window (single API call)."""
+        start = now - timedelta(days=backfill_days)
+        return await self.api.async_fetch_measurement_series(
+            meter_id=meter_id,
+            value_type=value_type,
+            interval=MEASUREMENT_FILTER_DAY,
+            start=start,
+            end=now,
+        )
+
+    async def _async_fetch_hourly_for_date(
+        self,
+        meter_id: str,
+        value_type: str,
+        target_date: date,
+    ) -> MeasurementSeries | None:
+        """Fetch hourly data for a single CET calendar day."""
+        start = datetime.combine(target_date, time.min, tzinfo=PORTAL_TZ)
+        end = start + timedelta(days=1)
+        return await self.api.async_fetch_measurement_series(
+            meter_id=meter_id,
+            value_type=value_type,
+            interval=MEASUREMENT_FILTER_HOUR,
+            start=start.astimezone(timezone.utc),
+            end=end.astimezone(timezone.utc),
+        )
+
+    # ------------------------------------------------------------------
+    # Statistics push
+    # ------------------------------------------------------------------
 
     async def _async_push_statistics(
         self,
@@ -166,6 +285,11 @@ class NetzeBwPortalHistoryManager:
             unit_class="energy",
         )
         async_add_external_statistics(self.hass, metadata, rows)
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
 
 
 def _history_value_type(meter: MeterDefinition) -> str:
@@ -198,15 +322,46 @@ def _statistics_rows_from_series(series: MeasurementSeries) -> list[StatisticDat
 
 
 def _normalize_statistic_start(value: datetime, interval: str) -> datetime:
-    """Normalize recorder timestamps to interval boundaries.
-
-    The API already returns startDatetime at portal-local midnight (for daily)
-    or at hour boundaries (for hourly), both expressed in UTC.  We only need
-    to truncate sub-hour noise; we must NOT force hour=0 for daily data because
-    CET midnight is 23:00 UTC (winter) or 22:00 UTC (summer).
-    """
+    """Normalize recorder timestamps to interval boundaries."""
     value = value.astimezone(timezone.utc)
     return value.replace(minute=0, second=0, microsecond=0)
+
+
+def _latest_point(series: MeasurementSeries | None) -> MeasurementPoint | None:
+    """Return the latest non-None point in a series."""
+    if series is None:
+        return None
+    valid = [p for p in series.points if p.value is not None]
+    if not valid:
+        return None
+    return max(valid, key=lambda p: p.start_datetime)
+
+
+def _last_point_dt(series: MeasurementSeries | None) -> datetime | None:
+    """Return the end_datetime of the latest point."""
+    p = _latest_point(series)
+    if p is None:
+        return None
+    return p.end_datetime
+
+
+def _load_date_set(stored: dict[str, Any], key: str) -> set[date]:
+    """Load a set of dates from stored ISO strings."""
+    raw = stored.get(key, [])
+    if not isinstance(raw, list):
+        return set()
+    result: set[date] = set()
+    for item in raw:
+        try:
+            result.add(date.fromisoformat(item))
+        except (ValueError, TypeError):
+            pass
+    return result
+
+
+def _save_date_set(dates: set[date]) -> list[str]:
+    """Serialize a set of dates to sorted ISO strings."""
+    return sorted(d.isoformat() for d in dates)
 
 
 def _dt_as_iso(value: datetime | None) -> str | None:

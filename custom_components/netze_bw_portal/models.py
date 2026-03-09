@@ -40,6 +40,8 @@ class MeterSnapshot:
     sum_7d: float | None
     sum_30d: float | None
     unit: str | None
+    latest_hourly_value: float | None = None
+    latest_daily_value: float | None = None
     history_status: str | None = None
     history_last_daily_point: datetime | None = None
     history_last_hourly_point: datetime | None = None

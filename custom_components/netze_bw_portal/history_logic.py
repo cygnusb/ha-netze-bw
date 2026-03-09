@@ -2,30 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .const import (
     HISTORY_DAILY_DELAY_DAYS,
     HISTORY_HOURLY_DELAY_HOURS,
+    HISTORY_RECHECK_DAYS,
     MEASUREMENT_FILTER_DAY,
     MEASUREMENT_FILTER_HOUR,
     PORTAL_TIMEZONE,
 )
-from .models import HistoryGap, HistoryState, MeasurementSeries
+from .models import HistoryGap, HistoryState
 
 PORTAL_TZ = ZoneInfo(PORTAL_TIMEZONE)
-
-
-@dataclass(frozen=True)
-class HistoryComputation:
-    """Result of evaluating interval completeness."""
-
-    last_daily_point: datetime | None
-    last_hourly_point: datetime | None
-    open_gaps: tuple[HistoryGap, ...]
-    status: str
 
 
 def _ensure_utc(value: datetime) -> datetime:
@@ -35,119 +25,92 @@ def _ensure_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def expected_daily_starts(now: datetime, days: int) -> list[datetime]:
-    """Return expected completed day interval starts in portal local time.
-
-    The portal uses Europe/Berlin midnight as day boundaries, so a daily
-    interval for e.g. March 6 CET starts at 2026-03-05T23:00:00Z (CET+1).
-    """
+def expected_daily_dates(now: datetime, days: int) -> set[date]:
+    """Return the set of CET calendar dates we expect daily data for."""
     now = _ensure_utc(now)
     local_now = now.astimezone(PORTAL_TZ)
     completed_until = local_now.date() - timedelta(days=HISTORY_DAILY_DELAY_DAYS)
     first_day = completed_until - timedelta(days=days - 1)
-    return [
-        datetime.combine(
-            first_day + timedelta(days=offset), time.min, tzinfo=PORTAL_TZ
-        ).astimezone(timezone.utc)
-        for offset in range(days)
-    ]
+    return {first_day + timedelta(days=offset) for offset in range(days)}
 
 
-def expected_hourly_starts(now: datetime, days: int) -> list[datetime]:
-    """Return expected completed hour interval starts."""
+def expected_hourly_dates(now: datetime, days: int) -> set[date]:
+    """Return the set of CET calendar dates we expect hourly data for.
+
+    The hourly cutoff is now minus HISTORY_HOURLY_DELAY_HOURS. Any day
+    whose 24h window is fully completed before the cutoff is expected.
+    """
     now = _ensure_utc(now)
-    cutoff = now.replace(minute=0, second=0, microsecond=0) - timedelta(
-        hours=HISTORY_HOURLY_DELAY_HOURS
-    )
-    first = cutoff - timedelta(days=days) + timedelta(hours=1)
-    return [first + timedelta(hours=offset) for offset in range(int((cutoff - first).total_seconds() // 3600) + 1)]
+    cutoff = now - timedelta(hours=HISTORY_HOURLY_DELAY_HOURS)
+    local_cutoff = cutoff.astimezone(PORTAL_TZ)
+    # A day is complete when its end-of-day (next midnight) <= cutoff
+    completed_until = local_cutoff.date() - timedelta(days=1)
+    first_day = completed_until - timedelta(days=days - 1)
+    if first_day > completed_until:
+        return set()
+    return {first_day + timedelta(days=offset) for offset in range((completed_until - first_day).days + 1)}
 
 
-def _find_gaps(
-    interval: str,
-    expected_starts: list[datetime],
-    series: MeasurementSeries | None,
-) -> tuple[HistoryGap, ...]:
-    if not expected_starts:
-        return ()
+def missing_dates(
+    expected: set[date],
+    fetched: set[date],
+    recheck_days: int = HISTORY_RECHECK_DAYS,
+) -> set[date]:
+    """Compute which dates still need to be fetched.
 
-    actual = {
-        _ensure_utc(point.start_datetime)
-        for point in (series.points if series is not None else [])
-        if point.value is not None
-    }
-    if series is not None and series.min_measurement_start_datetime is not None:
-        lower_bound = _ensure_utc(series.min_measurement_start_datetime)
-    elif actual:
-        lower_bound = min(actual)
-    else:
-        return ()
+    The last *recheck_days* dates are always considered missing (data
+    arrives with a delay and may be revised).
+    """
+    if not expected:
+        return set()
+    sorted_expected = sorted(expected)
+    always_recheck = set(sorted_expected[-recheck_days:]) if recheck_days else set()
+    return (expected - fetched) | (always_recheck & expected)
 
-    step = timedelta(days=1) if interval == MEASUREMENT_FILTER_DAY else timedelta(hours=1)
-    if series is not None and series.max_measurement_end_datetime is not None:
-        upper_bound = _ensure_utc(series.max_measurement_end_datetime) - step
-    elif actual:
-        upper_bound = max(actual)
-    else:
-        return ()
 
-    gaps = []
-    for expected_start in expected_starts:
-        es = _ensure_utc(expected_start)
-        if es < lower_bound or es > upper_bound:
-            continue
-        if es not in actual:
-            gaps.append(
-                HistoryGap(
-                    interval=interval,
-                    start_datetime=es,
-                    end_datetime=es + step,
-                )
-            )
-    return tuple(gaps)
+def prune_dates(dates: set[date], max_age_days: int, reference: date) -> set[date]:
+    """Remove dates older than *max_age_days* from the set."""
+    cutoff = reference - timedelta(days=max_age_days)
+    return {d for d in dates if d >= cutoff}
 
 
 def compute_history_state(
     *,
     now: datetime,
-    daily_series: MeasurementSeries | None,
-    hourly_series: MeasurementSeries | None,
+    daily_fetched_dates: set[date],
+    hourly_fetched_dates: set[date],
     daily_enabled: bool,
     hourly_enabled: bool,
     backfill_days: int,
     last_backfill: datetime | None,
+    last_daily_point: datetime | None = None,
+    last_hourly_point: datetime | None = None,
 ) -> HistoryState:
-    """Compute visible history status for a meter."""
+    """Compute visible history status for a meter from fetched-date sets."""
     now = _ensure_utc(now)
-    daily_points = daily_series.points if daily_series is not None else []
-    hourly_points = hourly_series.points if hourly_series is not None else []
-
-    last_daily_point = max(
-        (_ensure_utc(point.end_datetime) for point in daily_points if point.end_datetime is not None),
-        default=None,
-    )
-    last_hourly_point = max(
-        (_ensure_utc(point.end_datetime) for point in hourly_points if point.end_datetime is not None),
-        default=None,
-    )
 
     gaps: list[HistoryGap] = []
     if daily_enabled:
-        gaps.extend(
-            _find_gaps(
-                MEASUREMENT_FILTER_DAY,
-                expected_daily_starts(now, backfill_days),
-                daily_series,
-            )
-        )
+        exp_daily = expected_daily_dates(now, backfill_days)
+        daily_missing = missing_dates(exp_daily, daily_fetched_dates)
+        for d in sorted(daily_missing):
+            start = datetime.combine(d, time.min, tzinfo=PORTAL_TZ).astimezone(timezone.utc)
+            gaps.append(HistoryGap(
+                interval=MEASUREMENT_FILTER_DAY,
+                start_datetime=start,
+                end_datetime=start + timedelta(days=1),
+            ))
+
     if hourly_enabled:
-        gaps.extend(
-            _find_gaps(
-                MEASUREMENT_FILTER_HOUR,
-                expected_hourly_starts(now, backfill_days),
-                hourly_series,
-            )
-        )
+        exp_hourly = expected_hourly_dates(now, backfill_days)
+        hourly_missing = missing_dates(exp_hourly, hourly_fetched_dates)
+        for d in sorted(hourly_missing):
+            start = datetime.combine(d, time.min, tzinfo=PORTAL_TZ).astimezone(timezone.utc)
+            gaps.append(HistoryGap(
+                interval=MEASUREMENT_FILTER_HOUR,
+                start_datetime=start,
+                end_datetime=start + timedelta(days=1),
+            ))
 
     if gaps:
         status = "gaps"

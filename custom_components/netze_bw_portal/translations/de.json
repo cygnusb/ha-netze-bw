@@ -27,8 +27,7 @@
           "selected_meter_ids": "Aktivierte Zähler",
           "enable_daily_history": "Tägliche Historie abrufen",
           "enable_hourly_history": "Stündliche Historie abrufen",
-          "history_backfill_days": "Historie-Rückfüllung (Tage)",
-          "hourly_backfill_recheck_days": "Stündliche Nachprüfung (Tage)"
+          "history_backfill_days": "Historie-Rückfüllung (Tage)"
         }
       }
     },
@@ -40,6 +39,12 @@
     "sensor": {
       "daily_value": {
         "name": "Tagesenergie"
+      },
+      "hourly_consumption": {
+        "name": "Stundenverbrauch"
+      },
+      "daily_consumption": {
+        "name": "Tagesverbrauch"
       },
       "total_reading": {
         "name": "Zählerstand"
