@@ -33,6 +33,9 @@ from .models import (
 
 _LOGGER = logging.getLogger(__name__)
 
+_REAUTH_MAX_ATTEMPTS = 3
+_REAUTH_INITIAL_BACKOFF_SECONDS = 0.5
+
 
 class NetzeBwPortalError(Exception):
     """Base API exception."""
@@ -83,6 +86,8 @@ class NetzeBwPortalApiClient:
         self._session = session
         self._username = username
         self._password = password
+        self._reauth_lock: asyncio.Lock | None = None
+        self._login_generation = 0
         self._user_agent = (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
@@ -191,6 +196,10 @@ class NetzeBwPortalApiClient:
         form_parser = _HiddenInputParser()
         form_parser.feed(auth_body)
         if not form_parser.form_action or "wresult" not in form_parser.hidden_inputs:
+            if auth_response.status >= 500:
+                raise NetzeBwPortalConnectionError(
+                    f"Auth request failed with status {auth_response.status}"
+                )
             if auth_response.status >= 400:
                 raise NetzeBwPortalAuthError(
                     f"Auth request failed with status {auth_response.status}"
@@ -216,6 +225,11 @@ class NetzeBwPortalApiClient:
         _LOGGER.debug("Callback response status: %s", callback_resp.status)
         login_debug["callback_status"] = callback_resp.status
         login_debug["callback_url"] = str(callback_resp.url)
+
+        if callback_resp.status >= 500:
+            raise NetzeBwPortalConnectionError(
+                f"Authorization callback failed with status {callback_resp.status}"
+            )
 
         location = callback_resp.headers.get("Location")
         if callback_resp.status not in (301, 302) or not location:
@@ -256,6 +270,7 @@ class NetzeBwPortalApiClient:
             try:
                 await self.async_get_account_sub(raise_on_unauth=True)
                 _LOGGER.debug("Login successful on attempt %d", attempt)
+                self._login_generation += 1
                 return
             except NetzeBwPortalAuthError as err:
                 last_err = err
@@ -265,6 +280,47 @@ class NetzeBwPortalApiClient:
         raise NetzeBwPortalAuthError(
             f"Not authenticated after login flow: {login_debug}"
         ) from last_err
+
+    async def _async_reauthenticate(self, observed_generation: int) -> None:
+        """Refresh the authenticated session with bounded retries."""
+        if self._reauth_lock is None:
+            self._reauth_lock = asyncio.Lock()
+
+        async with self._reauth_lock:
+            if self._login_generation != observed_generation:
+                _LOGGER.debug(
+                    "Skipping reauth because another task already refreshed the session"
+                )
+                return
+
+            backoff = _REAUTH_INITIAL_BACKOFF_SECONDS
+            last_err: NetzeBwPortalConnectionError | None = None
+
+            for attempt in range(1, _REAUTH_MAX_ATTEMPTS + 1):
+                try:
+                    _LOGGER.debug(
+                        "Attempting reauth %d/%d", attempt, _REAUTH_MAX_ATTEMPTS
+                    )
+                    await self.async_login()
+                except NetzeBwPortalConnectionError as err:
+                    last_err = err
+                    if attempt >= _REAUTH_MAX_ATTEMPTS:
+                        break
+                    _LOGGER.debug(
+                        "Reauth attempt %d/%d failed with a temporary error: %s",
+                        attempt,
+                        _REAUTH_MAX_ATTEMPTS,
+                        err,
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff *= 2
+                else:
+                    _LOGGER.debug("Reauth succeeded on attempt %d", attempt)
+                    return
+
+            raise NetzeBwPortalConnectionError(
+                "Reauthentication failed after temporary server errors"
+            ) from last_err
 
     async def async_get_account_sub(self, raise_on_unauth: bool = False) -> str | None:
         """Return account subject from /bff/auth/user."""
@@ -499,10 +555,28 @@ class NetzeBwPortalApiClient:
 
         return results
 
-    async def _get_json(self, url: str, params: dict[str, str] | None = None) -> dict[str, Any]:
+    async def _get_json(
+        self,
+        url: str,
+        params: dict[str, str] | None = None,
+        *,
+        _retried: bool = False,
+    ) -> dict[str, Any]:
+        request_generation = self._login_generation
         response = await self._session.get(url, params=params, headers=self._bff_headers())
         if response.status == 401:
-            raise NetzeBwPortalAuthError("Unauthorized")
+            if _retried:
+                raise NetzeBwPortalAuthError("Unauthorized")
+            if self._login_generation == request_generation:
+                _LOGGER.debug("Got 401 for %s, attempting session refresh", url)
+                await self._async_reauthenticate(request_generation)
+            else:
+                _LOGGER.debug(
+                    "Got 401 for %s from stale auth generation %d, retrying with refreshed session",
+                    url,
+                    request_generation,
+                )
+            return await self._get_json(url, params=params, _retried=True)
         if response.status >= 400:
             raise NetzeBwPortalConnectionError(f"HTTP error {response.status} for {url}")
         return await response.json(content_type=None)

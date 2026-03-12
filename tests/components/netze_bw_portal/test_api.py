@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, call
 
 from custom_components.netze_bw_portal.api import (
     NetzeBwPortalApiClient,
+    NetzeBwPortalAuthError,
+    NetzeBwPortalConnectionError,
     _HiddenInputParser,
 )
 from custom_components.netze_bw_portal.const import (
@@ -16,6 +20,17 @@ from custom_components.netze_bw_portal.const import (
     VALUE_TYPE_FEEDIN_READING,
     VALUE_TYPE_READING,
 )
+
+
+class _FakeResponse:
+    """Minimal aiohttp-like response for API unit tests."""
+
+    def __init__(self, status: int, payload: dict | list | None = None) -> None:
+        self.status = status
+        self._payload = payload if payload is not None else {}
+
+    async def json(self, content_type: str | None = None) -> dict | list:
+        return self._payload
 
 
 def test_hidden_input_parser_extracts_form_and_inputs() -> None:
@@ -115,3 +130,123 @@ def test_parse_measurement_series_maps_har_fields() -> None:
     assert series.points[0].end_datetime.isoformat() == "2026-02-28T00:00:00+00:00"
     assert series.min_measurement_start_datetime.isoformat() == "2026-02-01T00:00:00+00:00"
     assert series.max_measurement_end_datetime.isoformat() == "2026-03-01T00:00:00+00:00"
+
+
+def test_get_json_retries_once_after_reauth() -> None:
+    """A single 401 should trigger reauth and one successful retry."""
+    session = AsyncMock()
+    session.get = AsyncMock(
+        side_effect=[
+            _FakeResponse(401),
+            _FakeResponse(200, {"ok": True}),
+        ]
+    )
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+
+    async def _login() -> None:
+        client._login_generation += 1
+
+    client.async_login = AsyncMock(side_effect=_login)
+
+    result = asyncio.run(client._get_json("https://example.test/resource"))
+
+    assert result == {"ok": True}
+    client.async_login.assert_awaited_once()
+    assert session.get.await_count == 2
+
+
+def test_get_json_raises_auth_error_after_second_401() -> None:
+    """A repeated 401 after reauth should surface as an auth failure."""
+    session = AsyncMock()
+    session.get = AsyncMock(
+        side_effect=[
+            _FakeResponse(401),
+            _FakeResponse(401),
+        ]
+    )
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+
+    async def _login() -> None:
+        client._login_generation += 1
+
+    client.async_login = AsyncMock(side_effect=_login)
+
+    try:
+        asyncio.run(client._get_json("https://example.test/resource"))
+    except NetzeBwPortalAuthError as err:
+        assert str(err) == "Unauthorized"
+    else:
+        raise AssertionError("Expected NetzeBwPortalAuthError")
+
+    client.async_login.assert_awaited_once()
+    assert session.get.await_count == 2
+
+
+def test_reauthenticate_retries_temporary_errors_with_backoff(monkeypatch) -> None:
+    """Temporary reauth failures should be retried with exponential backoff."""
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr("custom_components.netze_bw_portal.api.asyncio.sleep", sleep_mock)
+
+    client = NetzeBwPortalApiClient(session=AsyncMock())  # type: ignore[arg-type]
+    login_outcomes = iter(
+        [
+            NetzeBwPortalConnectionError("maintenance"),
+            NetzeBwPortalConnectionError("still down"),
+            None,
+        ]
+    )
+
+    async def _login() -> None:
+        outcome = next(login_outcomes)
+        if outcome is not None:
+            raise outcome
+        client._login_generation += 1
+
+    client.async_login = AsyncMock(side_effect=_login)
+
+    asyncio.run(client._async_reauthenticate(0))
+
+    assert client.async_login.await_count == 3
+    assert sleep_mock.await_args_list == [call(0.5), call(1.0)]
+    assert client._login_generation == 1
+
+
+def test_parallel_401_requests_share_one_reauth() -> None:
+    """Concurrent 401 responses should not trigger multiple logins."""
+    session = AsyncMock()
+
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+    request_count = 0
+
+    async def _login_once() -> None:
+        client._login_generation += 1
+        await asyncio.sleep(0)
+
+    client.async_login = AsyncMock(side_effect=_login_once)
+
+    async def _run() -> list[dict | list]:
+        first_wave_ready = asyncio.Event()
+
+        async def _get(*args, **kwargs) -> _FakeResponse:
+            nonlocal request_count
+            request_count += 1
+            if request_count <= 2:
+                if request_count == 2:
+                    first_wave_ready.set()
+                await first_wave_ready.wait()
+                return _FakeResponse(401)
+            if request_count == 3:
+                return _FakeResponse(200, {"request": 1})
+            return _FakeResponse(200, {"request": 2})
+
+        session.get = AsyncMock(side_effect=_get)
+
+        return await asyncio.gather(
+            client._get_json("https://example.test/one"),
+            client._get_json("https://example.test/two"),
+        )
+
+    results = asyncio.run(_run())
+
+    assert results == [{"request": 1}, {"request": 2}]
+    client.async_login.assert_awaited_once()
