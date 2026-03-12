@@ -1,5 +1,8 @@
 type: custom:plotly-graph
 title: Netze BW – Stündlicher Verbrauch & Einspeisung
+last_hourly_point_entities:
+  - sensor.your_consumption_last_hourly_point
+  - sensor.your_feed_in_last_hourly_point
 entities:
   - entity: netze_bw_portal:YOUR_CONSUMPTION_METER_ID_hourly
     statistic: state
@@ -39,10 +42,20 @@ layout:
       const nextSetting = new Date(sun.attributes.next_setting);
       const now = new Date();
       const hoursToShow = getFromConfig("hours_to_show");
+      const lastHourlyPointEntities = getFromConfig("last_hourly_point_entities") ?? [];
+      const entityIds = Array.isArray(lastHourlyPointEntities)
+        ? lastHourlyPointEntities
+        : [lastHourlyPointEntities];
       const start = new Date(now.getTime() - hoursToShow * 3600000);
       const DAY = 86400000;
       const numDays = Math.ceil(hoursToShow / 24) + 2;
       const shapes = [];
+      const latestHourlyPoint = entityIds
+        .map((entityId) => hass.states[entityId]?.state)
+        .filter((state) => state && state !== "unknown" && state !== "unavailable")
+        .map((state) => new Date(state))
+        .filter((date) => !Number.isNaN(date.getTime()))
+        .sort((a, b) => b.getTime() - a.getTime())[0];
 
       for (let i = 0; i < numDays; i++) {
         const sunset = new Date(nextSetting.getTime() - i * DAY);
@@ -59,6 +72,45 @@ layout:
             fillcolor: "rgba(70, 90, 120, 0.10)",
             line: { width: 0 },
             layer: "below",
+          });
+        }
+      }
+
+      if (latestHourlyPoint) {
+        const shadeStart = new Date(
+          Math.max(latestHourlyPoint.getTime(), start.getTime())
+        );
+        if (shadeStart < now) {
+          shapes.push({
+            type: "rect",
+            xref: "x",
+            yref: "paper",
+            x0: shadeStart,
+            x1: now,
+            y0: 0,
+            y1: 1,
+            fillcolor: "rgba(120, 120, 120, 0.16)",
+            line: {
+              color: "rgba(120, 120, 120, 0.55)",
+              width: 1,
+              dash: "dot",
+            },
+            layer: "below",
+          });
+          shapes.push({
+            type: "line",
+            xref: "x",
+            yref: "paper",
+            x0: shadeStart,
+            x1: shadeStart,
+            y0: 0,
+            y1: 1,
+            line: {
+              color: "rgba(120, 120, 120, 0.75)",
+              width: 2,
+              dash: "dot",
+            },
+            layer: "above",
           });
         }
       }

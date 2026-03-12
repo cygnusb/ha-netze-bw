@@ -71,11 +71,11 @@ On first setup, the integration fetches all 30 days of daily history (one API ca
 
 ## Plotly Graph Example
 
-A ready-to-use [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-graph-card) example is included in [`examples/plotly_netze_bw.yaml`](examples/plotly_netze_bw.yaml). It shows hourly consumption and feed-in as stacked bars with night-time shading from the `sun.sun` integration.
+A ready-to-use [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-graph-card) example is included in [`examples/plotly_netze_bw.yaml`](examples/plotly_netze_bw.yaml). It shows hourly consumption and feed-in as stacked bars with night-time shading from the `sun.sun` integration plus a shaded overlay for the period where hourly history is not available yet.
 
 ![Plotly graph showing hourly consumption and feed-in with night shading](examples/plotly.png)
 
-Replace `YOUR_CONSUMPTION_METER_ID` and `YOUR_FEED_IN_METER_ID` with your actual meter IDs from the sensor entity names.
+Replace `YOUR_CONSUMPTION_METER_ID` and `YOUR_FEED_IN_METER_ID` with your actual meter IDs from the sensor entity names. Also set `last_hourly_point_entities` to the entity IDs of your diagnostic sensor(s) named `Letzter Stundenwert` / `Last hourly history point`.
 
 ## Installation
 
