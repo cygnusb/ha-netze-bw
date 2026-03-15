@@ -9,7 +9,7 @@ import logging
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
-from aiohttp import ClientSession
+from aiohttp import ClientConnectionError, ClientSession, ClientTimeout
 
 from .const import (
     AUTH_URL,
@@ -86,8 +86,9 @@ class NetzeBwPortalApiClient:
         self._session = session
         self._username = username
         self._password = password
-        self._reauth_lock: asyncio.Lock | None = None
+        self._reauth_lock: asyncio.Lock = asyncio.Lock()
         self._login_generation = 0
+        self._timeout = ClientTimeout(total=30, connect=10)
         self._user_agent = (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
@@ -113,14 +114,15 @@ class NetzeBwPortalApiClient:
 
     async def async_login(self) -> None:
         """Login with username/password through the Auth0 form flow."""
-        _LOGGER.debug("Starting login flow for %s", self._username)
+        _LOGGER.debug("Starting login flow")
         login_debug: dict[str, str | int] = {}
         try:
             login_entry = await self._session.get(
                 f"{BASE_URL}/bff/auth/login?returnUrl=/signin?target=%2F",
                 allow_redirects=True,
+                timeout=self._timeout,
             )
-        except Exception as err:
+        except (ClientConnectionError, asyncio.TimeoutError) as err:
             raise NetzeBwPortalConnectionError("Could not open login entrypoint") from err
         _LOGGER.debug("Login entrypoint reached: %s (status %s)", login_entry.url.host, login_entry.status)
         login_debug["login_entry_url"] = str(login_entry.url)
@@ -178,6 +180,7 @@ class NetzeBwPortalApiClient:
             auth_response = await self._session.post(
                 f"{AUTH_URL}/usernamepassword/login",
                 json=payload,
+                timeout=self._timeout,
                 headers={
                     "Accept": "*/*",
                     "Auth0-Client": "eyJuYW1lIjoibG9jay5qcy11bHAiLCJ2ZXJzaW9uIjoiMTEuMTcuMyIsImVudiI6eyJhdXRoMC5qcy11bHAiOiI5LjExLjIifX0=",
@@ -186,7 +189,7 @@ class NetzeBwPortalApiClient:
                     "User-Agent": self._user_agent,
                 },
             )
-        except Exception as err:
+        except (ClientConnectionError, asyncio.TimeoutError) as err:
             raise NetzeBwPortalConnectionError("Could not submit credentials") from err
         _LOGGER.debug("Credentials submitted, auth response status: %s", auth_response.status)
         login_debug["auth_response_status"] = auth_response.status
@@ -278,14 +281,11 @@ class NetzeBwPortalApiClient:
                 await asyncio.sleep(0.4)
 
         raise NetzeBwPortalAuthError(
-            f"Not authenticated after login flow: {login_debug}"
+            "Not authenticated after login flow"
         ) from last_err
 
     async def _async_reauthenticate(self, observed_generation: int) -> None:
         """Refresh the authenticated session with bounded retries."""
-        if self._reauth_lock is None:
-            self._reauth_lock = asyncio.Lock()
-
         async with self._reauth_lock:
             if self._login_generation != observed_generation:
                 _LOGGER.debug(
@@ -328,8 +328,9 @@ class NetzeBwPortalApiClient:
             resp = await self._session.get(
                 f"{BASE_URL}/bff/auth/user",
                 headers=self._bff_headers(),
+                timeout=self._timeout,
             )
-        except Exception as err:
+        except (ClientConnectionError, asyncio.TimeoutError) as err:
             raise NetzeBwPortalConnectionError(
                 f"Could not read auth user endpoint: {err!r}"
             ) from err
@@ -343,9 +344,15 @@ class NetzeBwPortalApiClient:
             raise NetzeBwPortalConnectionError(f"Unexpected auth user status {resp.status}")
 
         claims = await resp.json(content_type=None)
+        if not isinstance(claims, list):
+            raise NetzeBwPortalConnectionError("Unexpected auth user response format")
         for claim in claims:
+            if not isinstance(claim, dict):
+                continue
             if claim.get("type") == "sub":
-                return claim.get("value")
+                value = claim.get("value")
+                if isinstance(value, str):
+                    return value
         return None
 
     async def async_fetch_data(self, selected_meter_ids: set[str] | None = None) -> CoordinatorData:
@@ -555,6 +562,31 @@ class NetzeBwPortalApiClient:
 
         return results
 
+    async def _request_with_retry(
+        self,
+        url: str,
+        params: dict[str, str] | None = None,
+    ):
+        """Perform a GET with retry for transient server errors (429/502/503)."""
+        backoff = 1.0
+        for attempt in range(3):
+            try:
+                response = await self._session.get(
+                    url, params=params, headers=self._bff_headers(), timeout=self._timeout
+                )
+            except (ClientConnectionError, asyncio.TimeoutError) as err:
+                raise NetzeBwPortalConnectionError(f"Connection error for {url}") from err
+            if response.status in (429, 502, 503) and attempt < 2:
+                _LOGGER.debug(
+                    "Transient HTTP %d for %s, retrying (attempt %d/3)",
+                    response.status, url, attempt + 1,
+                )
+                await asyncio.sleep(backoff)
+                backoff *= 2
+                continue
+            return response
+        return response
+
     async def _get_json(
         self,
         url: str,
@@ -563,7 +595,7 @@ class NetzeBwPortalApiClient:
         _retried: bool = False,
     ) -> dict[str, Any]:
         request_generation = self._login_generation
-        response = await self._session.get(url, params=params, headers=self._bff_headers())
+        response = await self._request_with_retry(url, params)
         if response.status == 401:
             if _retried:
                 raise NetzeBwPortalAuthError("Unauthorized")

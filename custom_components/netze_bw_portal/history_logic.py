@@ -28,6 +28,8 @@ def _ensure_utc(value: datetime) -> datetime:
 
 def expected_daily_dates(now: datetime, days: int) -> set[date]:
     """Return the set of CET calendar dates we expect daily data for."""
+    if days <= 0:
+        raise ValueError(f"days must be > 0, got {days}")
     now = _ensure_utc(now)
     local_now = now.astimezone(PORTAL_TZ)
     completed_until = local_now.date() - timedelta(days=HISTORY_DAILY_DELAY_DAYS)
@@ -41,6 +43,8 @@ def expected_hourly_dates(now: datetime, days: int) -> set[date]:
     The hourly cutoff is now minus HISTORY_HOURLY_DELAY_HOURS. Any day
     whose 24h window is fully completed before the cutoff is expected.
     """
+    if days <= 0:
+        raise ValueError(f"days must be > 0, got {days}")
     now = _ensure_utc(now)
     cutoff = now - timedelta(hours=HISTORY_HOURLY_DELAY_HOURS)
     local_cutoff = cutoff.astimezone(PORTAL_TZ)
