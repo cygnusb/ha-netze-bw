@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, call, patch
+
+from aiohttp import ClientConnectionError
 
 from custom_components.netze_bw_portal.api import (
     NetzeBwPortalApiClient,
@@ -250,3 +252,96 @@ def test_parallel_401_requests_share_one_reauth() -> None:
 
     assert results == [{"request": 1}, {"request": 2}]
     client.async_login.assert_awaited_once()
+
+
+def test_get_json_raises_connection_error_on_network_failure() -> None:
+    """A network error during _request_with_retry should raise NetzeBwPortalConnectionError."""
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=ClientConnectionError("network down"))
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+
+    try:
+        asyncio.run(client._get_json("https://example.test/resource"))
+    except NetzeBwPortalConnectionError as err:
+        assert "Connection error" in str(err)
+    else:
+        raise AssertionError("Expected NetzeBwPortalConnectionError")
+
+
+def test_request_with_retry_retries_on_503(monkeypatch) -> None:
+    """HTTP 503 should be retried twice before returning the response."""
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr("custom_components.netze_bw_portal.api.asyncio.sleep", sleep_mock)
+
+    session = AsyncMock()
+    session.get = AsyncMock(
+        side_effect=[
+            _FakeResponse(503),
+            _FakeResponse(503),
+            _FakeResponse(200, {"ok": True}),
+        ]
+    )
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+
+    result = asyncio.run(client._get_json("https://example.test/resource"))
+
+    assert result == {"ok": True}
+    assert session.get.await_count == 3
+    assert sleep_mock.await_count == 2
+    assert sleep_mock.await_args_list == [call(1.0), call(2.0)]
+
+
+def test_request_with_retry_raises_after_exhausting_transient_errors(monkeypatch) -> None:
+    """Three consecutive 503 responses should raise NetzeBwPortalConnectionError."""
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr("custom_components.netze_bw_portal.api.asyncio.sleep", sleep_mock)
+
+    session = AsyncMock()
+    session.get = AsyncMock(
+        side_effect=[
+            _FakeResponse(503),
+            _FakeResponse(503),
+            _FakeResponse(503),
+        ]
+    )
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+
+    try:
+        asyncio.run(client._get_json("https://example.test/resource"))
+    except NetzeBwPortalConnectionError as err:
+        assert "503" in str(err)
+    else:
+        raise AssertionError("Expected NetzeBwPortalConnectionError")
+
+
+def test_get_account_sub_raises_on_malformed_response() -> None:
+    """Non-list response from auth user endpoint should raise NetzeBwPortalConnectionError."""
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=_FakeResponse(200, {"type": "sub", "value": "u123"}))
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+
+    try:
+        asyncio.run(client.async_get_account_sub())
+    except NetzeBwPortalConnectionError as err:
+        assert "Unexpected auth user response format" in str(err)
+    else:
+        raise AssertionError("Expected NetzeBwPortalConnectionError")
+
+
+def test_get_account_sub_skips_non_dict_claims() -> None:
+    """Non-dict entries in claims list should be silently skipped."""
+    session = AsyncMock()
+    session.get = AsyncMock(
+        return_value=_FakeResponse(200, [None, 42, {"type": "sub", "value": "u-xyz"}])
+    )
+    client = NetzeBwPortalApiClient(session=session)  # type: ignore[arg-type]
+
+    result = asyncio.run(client.async_get_account_sub())
+    assert result == "u-xyz"
+
+
+def test_reauth_lock_initialized_at_construction() -> None:
+    """Lock must be initialized in __init__, not lazily."""
+    client = NetzeBwPortalApiClient(session=AsyncMock())  # type: ignore[arg-type]
+    assert client._reauth_lock is not None
+    assert isinstance(client._reauth_lock, asyncio.Lock)

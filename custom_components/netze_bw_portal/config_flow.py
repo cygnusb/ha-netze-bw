@@ -51,11 +51,19 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            username = user_input.get(CONF_USERNAME, "").strip()
+            password = user_input.get(CONF_PASSWORD, "")
+            if not username or not password:
+                errors["base"] = "invalid_auth"
+            elif len(username) > 255 or len(password) > 255:
+                errors["base"] = "invalid_auth"
+
+        if user_input is not None and not errors:
             session = async_get_clientsession(self.hass)
             client = NetzeBwPortalApiClient(
                 session=session,
-                username=user_input[CONF_USERNAME],
-                password=user_input[CONF_PASSWORD],
+                username=username,
+                password=password,
             )
 
             try:
@@ -74,8 +82,8 @@ class NetzeBwPortalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(account_sub)
                 self._abort_if_unique_id_configured()
 
-                self._username = user_input[CONF_USERNAME]
-                self._password = user_input[CONF_PASSWORD]
+                self._username = username
+                self._password = password
                 self._account_sub = account_sub
                 self._meter_choices = meter_choices
 

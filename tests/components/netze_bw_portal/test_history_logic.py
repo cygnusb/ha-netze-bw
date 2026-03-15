@@ -119,6 +119,30 @@ def test_compute_history_state_rechecks_recent_dates() -> None:
     }
 
 
+def test_expected_daily_dates_raises_on_non_positive_days() -> None:
+    """expected_daily_dates must reject days <= 0."""
+    import pytest
+
+    now = datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="days must be > 0"):
+        expected_daily_dates(now, days=0)
+    with pytest.raises(ValueError, match="days must be > 0"):
+        expected_daily_dates(now, days=-1)
+
+
+def test_expected_hourly_dates_raises_on_non_positive_days() -> None:
+    """expected_hourly_dates must reject days <= 0."""
+    import pytest
+
+    from custom_components.netze_bw_portal.history_logic import expected_hourly_dates
+
+    now = datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="days must be > 0"):
+        expected_hourly_dates(now, days=0)
+    with pytest.raises(ValueError, match="days must be > 0"):
+        expected_hourly_dates(now, days=-5)
+
+
 def test_compute_history_state_disabled() -> None:
     """When all history modes are disabled, status should be disabled."""
     now = datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc)
