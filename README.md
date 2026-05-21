@@ -10,6 +10,8 @@
 [![HA Version][ha-badge]][ha-url]
 [![License][license-badge]][license-url]
 [![GitHub commit activity][commits-badge]][commits-url]
+[![Validate][validate-badge]][validate-url]
+[![GitHub Stars][stars-badge]][stars-url]
 
 Home Assistant integration for the [Netze BW portal](https://meine.netze-bw.de) — automatic smart meter discovery, real-time sensors, and up to 30 days of energy history for the Energy Dashboard.
 
@@ -150,3 +152,7 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 [license-url]: https://github.com/cygnusb/ha-netze-bw/blob/main/LICENSE
 [commits-badge]: https://img.shields.io/github/commit-activity/y/cygnusb/ha-netze-bw
 [commits-url]: https://github.com/cygnusb/ha-netze-bw/commits/main
+[validate-badge]: https://img.shields.io/github/actions/workflow/status/cygnusb/ha-netze-bw/validate.yml?label=validate&logo=github
+[validate-url]: https://github.com/cygnusb/ha-netze-bw/actions/workflows/validate.yml
+[stars-badge]: https://img.shields.io/github/stars/cygnusb/ha-netze-bw?style=flat
+[stars-url]: https://github.com/cygnusb/ha-netze-bw/stargazers
