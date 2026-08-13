@@ -1,0 +1,27 @@
+{
+  "installations": [
+    {
+      "id": "308E67AD11C2A5706F1DF880DAA5F98E",
+      "type": "IMS",
+      "friendlyName": null,
+      "meterId": "1ISK0090000001",
+      "valueTypes": ["CONSUMPTION", "FEEDIN"],
+      "state": "Active"
+    },
+    {
+      "id": "11111111111111111111111111111111",
+      "type": "IMS",
+      "friendlyName": "Alt-Zaehler",
+      "meterId": "1ISK0080000001",
+      "valueTypes": ["CONSUMPTION"],
+      "state": "Inactive"
+    },
+    {
+      "id": "81002153555",
+      "type": "MSB",
+      "friendlyName": "Zaehlermiete",
+      "state": "Active"
+    }
+  ],
+  "errors": []
+}

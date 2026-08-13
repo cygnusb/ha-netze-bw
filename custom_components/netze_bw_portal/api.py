@@ -14,6 +14,7 @@ from aiohttp import ClientConnectionError, ClientSession, ClientTimeout
 from .const import (
     AUTH_URL,
     BASE_URL,
+    DIRECTION_LABELS,
     HISTORY_DAYS,
     MEASUREMENT_FILTER_DAY,
     METER_TYPE_IMS,
@@ -370,13 +371,13 @@ class NetzeBwPortalApiClient:
         errors: dict[str, str] = {}
 
         async def _load_meter(meter: MeterDefinition) -> None:
-            _LOGGER.debug("Loading snapshot for meter %s (%s)", meter.id, meter.friendly_name)
+            _LOGGER.debug("Loading snapshot for meter %s (%s)", meter.key, meter.friendly_name)
             try:
-                snapshots[meter.id] = await self._fetch_meter_snapshot(meter)
-                _LOGGER.debug("Snapshot loaded for meter %s", meter.id)
+                snapshots[meter.key] = await self._fetch_meter_snapshot(meter)
+                _LOGGER.debug("Snapshot loaded for meter %s", meter.key)
             except NetzeBwPortalError as err:
-                _LOGGER.debug("Snapshot failed for meter %s: %s", meter.id, err)
-                errors[meter.id] = str(err)
+                _LOGGER.debug("Snapshot failed for meter %s: %s", meter.key, err)
+                errors[meter.key] = str(err)
 
         await asyncio.gather(*(_load_meter(meter) for meter in meter_defs))
         _LOGGER.debug("All meters loaded (snapshots=%d, errors=%d)", len(snapshots), len(errors))
@@ -388,7 +389,7 @@ class NetzeBwPortalApiClient:
         await self.async_ensure_login()
         installations = await self._get_json(f"{BASE_URL}/bff/api/kuposervice/v1/portal/installations")
         meter_defs = self._extract_ims_meter_definitions(installations)
-        return {meter.id: meter.friendly_name for meter in meter_defs}
+        return self._meter_choices_from_definitions(meter_defs)
 
     async def _fetch_meter_snapshot(self, meter: MeterDefinition) -> MeterSnapshot:
         _LOGGER.debug("Fetching details for meter %s", meter.id)
@@ -525,7 +526,7 @@ class NetzeBwPortalApiClient:
 
     @staticmethod
     def _value_types_for_meter(meter: MeterDefinition) -> tuple[str, str, str]:
-        if VALUE_TYPE_FEEDIN in meter.value_types:
+        if meter.direction == VALUE_TYPE_FEEDIN:
             return VALUE_TYPE_FEEDIN, VALUE_TYPE_FEEDIN_READING, "lastfeedin"
         return VALUE_TYPE_CONSUMPTION, VALUE_TYPE_READING, "lastconsumption"
 
@@ -545,22 +546,63 @@ class NetzeBwPortalApiClient:
                 continue
 
             value_types = [value for value in item.get("valueTypes", []) if isinstance(value, str)]
-            if not value_types:
+            directions = [
+                direction
+                for direction in (VALUE_TYPE_CONSUMPTION, VALUE_TYPE_FEEDIN)
+                if direction in value_types
+            ]
+            if not directions:
                 continue
 
-            friendly_name = item.get("friendlyName") or meter_id
-            results.append(
-                MeterDefinition(
-                    id=meter_id,
-                    friendly_name=friendly_name,
-                    meter_id=item.get("meterId"),
-                    value_types=value_types,
-                    meter_type=meter_type,
-                    state=state if isinstance(state, str) else state.get("code") if isinstance(state, dict) else None,
+            base_name = item.get("friendlyName") or item.get("meterId") or meter_id
+            for direction in directions:
+                if len(directions) == 1 and item.get("friendlyName"):
+                    friendly_name = base_name
+                else:
+                    friendly_name = f"{base_name} {DIRECTION_LABELS[direction]}"
+                results.append(
+                    MeterDefinition(
+                        id=meter_id,
+                        friendly_name=friendly_name,
+                        meter_id=item.get("meterId"),
+                        value_types=value_types,
+                        meter_type=meter_type,
+                        state=state if isinstance(state, str) else state.get("code") if isinstance(state, dict) else None,
+                        direction=direction,
+                        base_name=base_name,
+                    )
                 )
-            )
 
-        return results
+        return NetzeBwPortalApiClient._dedupe_by_physical_meter(results)
+
+    @staticmethod
+    def _dedupe_by_physical_meter(meters: list[MeterDefinition]) -> list[MeterDefinition]:
+        """Keep one logical meter per physical meter and direction.
+
+        Some accounts report the same physical meter (meterId) through multiple
+        installations, each claiming both directions with identical values. The
+        lexicographically first installation id wins so the choice is stable
+        across refreshes.
+        """
+        chosen: dict[tuple[str, str], MeterDefinition] = {}
+        passthrough: list[MeterDefinition] = []
+        for meter in meters:
+            if not meter.meter_id:
+                passthrough.append(meter)
+                continue
+            dedupe_key = (meter.meter_id, meter.direction)
+            current = chosen.get(dedupe_key)
+            if current is None or meter.id < current.id:
+                chosen[dedupe_key] = meter
+        dropped = len(meters) - len(passthrough) - len(chosen)
+        if dropped:
+            _LOGGER.debug("Collapsed %d duplicate installation direction(s)", dropped)
+        return passthrough + sorted(chosen.values(), key=lambda m: m.key)
+
+    @staticmethod
+    def _meter_choices_from_definitions(meters: list[MeterDefinition]) -> dict[str, str]:
+        """Collapse logical meters to one selectable choice per installation."""
+        return {meter.id: meter.base_name for meter in meters}
 
     async def _request_with_retry(
         self,

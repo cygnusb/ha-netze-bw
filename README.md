@@ -23,6 +23,15 @@ Home Assistant integration for the [Netze BW portal](https://meine.netze-bw.de) 
 - Backfills up to **30 days** of daily and hourly consumption history into the HA Energy Dashboard (Long-Term Statistics)
 - Incremental history updates — only missing days are re-fetched, not the full window every cycle
 - Supports both consumption and feed-in (Einspeisung) meters
+- Bidirectional meters (Zweirichtungszähler) get **two separate devices** — one for grid consumption (Bezug) and one for feed-in — even when the portal reports them as a single installation
+
+> **Upgrading to 0.6.0 from an earlier version?** Entity and statistic IDs changed:
+> every meter is now keyed by installation **and direction**, which fixes
+> bidirectional meters previously only reporting feed-in
+> ([#3](https://github.com/cygnusb/ha-netze-bw/issues/3)). After the update,
+> remove the orphaned old entities/devices and re-select the new statistics in
+> the Energy Dashboard. History is re-imported automatically from the portal for
+> the configured backfill window.
 
 ## Sensors
 

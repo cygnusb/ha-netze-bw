@@ -89,3 +89,40 @@ def test_history_diagnostic_sensors_are_declared() -> None:
         "last_fetch",
         "next_fetch",
     }.issubset(keys)
+
+
+HISTORY_PATH = ROOT / "custom_components" / "netze_bw_portal" / "history.py"
+
+
+def test_sensor_feedin_translation_uses_direction() -> None:
+    """Feed-in naming must key off the logical direction, not raw value_types."""
+    source = SENSOR_PATH.read_text()
+    assert ".direction" in source
+    assert "VALUE_TYPE_FEEDIN in" not in source
+
+
+def test_history_value_type_uses_direction() -> None:
+    """History fetches must follow the logical direction, not FEEDIN preference."""
+    source = HISTORY_PATH.read_text()
+    assert "VALUE_TYPE_FEEDIN in meter.value_types" not in source
+    assert "meter.direction" in source
+
+
+def test_history_statistic_id_uses_logical_key() -> None:
+    """Statistic ids must include the direction so both directions never collide."""
+    source = HISTORY_PATH.read_text()
+    assert "meter.key" in source
+    assert "f'{meter.id}_{resolution}'" not in source
+
+
+def test_history_api_calls_use_installation_id() -> None:
+    """API fetches must use the installation id, not the logical dict key."""
+    source = HISTORY_PATH.read_text()
+    tree = ast.parse(source)
+    method = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_update_histories"
+    )
+    source_segment = ast.get_source_segment(source, method)
+    assert "snapshot.meter.id, history_value_type" in source_segment

@@ -1,0 +1,21 @@
+{
+  "installations": [
+    {
+      "id": "F7B9F597AAAA000000000000000000AA",
+      "type": "IMS",
+      "friendlyName": "Zaehler1 Werttypen",
+      "meterId": "1ISK0090780001",
+      "valueTypes": ["CONSUMPTION", "FEEDIN"],
+      "state": "Active"
+    },
+    {
+      "id": "3C00B55EBBBB000000000000000000BB",
+      "type": "IMS",
+      "friendlyName": "Zaehler2 Werttypen",
+      "meterId": "1ISK0090780001",
+      "valueTypes": ["CONSUMPTION", "FEEDIN"],
+      "state": "Active"
+    }
+  ],
+  "errors": []
+}

@@ -345,3 +345,82 @@ def test_reauth_lock_initialized_at_construction() -> None:
     client = NetzeBwPortalApiClient(session=AsyncMock())  # type: ignore[arg-type]
     assert client._reauth_lock is not None
     assert isinstance(client._reauth_lock, asyncio.Lock)
+
+
+def _load_installations(name: str) -> dict:
+    fixture = Path(f"tests/fixtures/netze_bw_portal/{name}")
+    return json.loads(fixture.read_text())
+
+
+def test_extract_splits_single_dual_direction_installation() -> None:
+    """One installation reporting both value types yields two logical meters."""
+    data = _load_installations("installations_dual_single.json")
+
+    meters = NetzeBwPortalApiClient._extract_ims_meter_definitions(data)
+
+    assert len(meters) == 2
+    consumption = next(m for m in meters if m.direction == VALUE_TYPE_CONSUMPTION)
+    feedin = next(m for m in meters if m.direction == VALUE_TYPE_FEEDIN)
+    assert consumption.id == feedin.id == "308E67AD11C2A5706F1DF880DAA5F98E"
+    assert consumption.key == "308E67AD11C2A5706F1DF880DAA5F98E_consumption"
+    assert feedin.key == "308E67AD11C2A5706F1DF880DAA5F98E_feedin"
+    # friendlyName is null -> fall back to physical meterId plus direction label
+    assert consumption.friendly_name == "1ISK0090000001 Bezug"
+    assert feedin.friendly_name == "1ISK0090000001 Einspeisung"
+    assert consumption.value_types == [VALUE_TYPE_CONSUMPTION, VALUE_TYPE_FEEDIN]
+
+
+def test_extract_dedups_dual_direction_installation_pair() -> None:
+    """Two dual-type installations for one physical meter collapse to one pair."""
+    data = _load_installations("installations_dual_pair.json")
+
+    meters = NetzeBwPortalApiClient._extract_ims_meter_definitions(data)
+
+    assert len(meters) == 2
+    assert {m.direction for m in meters} == {VALUE_TYPE_CONSUMPTION, VALUE_TYPE_FEEDIN}
+    # Deterministic: the lexicographically first installation id wins
+    assert all(m.id == "3C00B55EBBBB000000000000000000BB" for m in meters)
+
+
+def test_extract_clean_pair_keeps_names_and_gets_direction_keys() -> None:
+    """Single-direction installations keep their friendly names, keys get a direction suffix."""
+    data = _load_installations("installations.json")
+
+    meters = NetzeBwPortalApiClient._extract_ims_meter_definitions(data)
+
+    assert len(meters) == 2
+    assert meters[0].direction == VALUE_TYPE_CONSUMPTION
+    assert meters[0].key == "43D711FCC2A8570691DF880DAA5F98EE_consumption"
+    assert meters[0].friendly_name == "Verbrauch"
+    assert meters[1].direction == VALUE_TYPE_FEEDIN
+    assert meters[1].key == "67EB3DDAF71666674560F299E759F9E8_feedin"
+    assert meters[1].friendly_name == "Einspeisung"
+
+
+def test_value_types_follow_direction_for_split_meters() -> None:
+    """Endpoint mapping must follow the logical direction, not FEEDIN preference."""
+    data = _load_installations("installations_dual_single.json")
+    meters = NetzeBwPortalApiClient._extract_ims_meter_definitions(data)
+    consumption = next(m for m in meters if m.direction == VALUE_TYPE_CONSUMPTION)
+    feedin = next(m for m in meters if m.direction == VALUE_TYPE_FEEDIN)
+
+    assert NetzeBwPortalApiClient._value_types_for_meter(consumption) == (
+        VALUE_TYPE_CONSUMPTION,
+        VALUE_TYPE_READING,
+        "lastconsumption",
+    )
+    assert NetzeBwPortalApiClient._value_types_for_meter(feedin) == (
+        VALUE_TYPE_FEEDIN,
+        VALUE_TYPE_FEEDIN_READING,
+        "lastfeedin",
+    )
+
+
+def test_meter_choices_collapse_to_one_entry_per_installation() -> None:
+    """Options-flow choices stay keyed by installation id with the base name."""
+    data = _load_installations("installations_dual_single.json")
+    meters = NetzeBwPortalApiClient._extract_ims_meter_definitions(data)
+
+    choices = NetzeBwPortalApiClient._meter_choices_from_definitions(meters)
+
+    assert choices == {"308E67AD11C2A5706F1DF880DAA5F98E": "1ISK0090000001"}

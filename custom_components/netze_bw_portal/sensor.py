@@ -229,7 +229,7 @@ class NetzeBwPortalSensor(CoordinatorEntity[NetzeBwPortalCoordinator], SensorEnt
             description.feedin_translation_key is not None
             and coordinator.data
             and meter_id in coordinator.data.meters
-            and VALUE_TYPE_FEEDIN in coordinator.data.meters[meter_id].meter.value_types
+            and coordinator.data.meters[meter_id].meter.direction == VALUE_TYPE_FEEDIN
         ):
             self._attr_translation_key = description.feedin_translation_key
 
@@ -274,4 +274,5 @@ class NetzeBwPortalSensor(CoordinatorEntity[NetzeBwPortalCoordinator], SensorEnt
             "meter_id": snapshot.meter.id,
             "gateway_meter_id": snapshot.meter.meter_id,
             "value_types": snapshot.meter.value_types,
+            "direction": snapshot.meter.direction,
         }

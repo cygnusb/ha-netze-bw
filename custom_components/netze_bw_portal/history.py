@@ -27,8 +27,6 @@ from .const import (
     MEASUREMENT_FILTER_DAY,
     MEASUREMENT_FILTER_HOUR,
     PORTAL_TIMEZONE,
-    VALUE_TYPE_CONSUMPTION,
-    VALUE_TYPE_FEEDIN,
 )
 from .history_logic import (
     compute_history_state,
@@ -138,7 +136,7 @@ class NetzeBwPortalHistoryManager:
 
                     if daily_todo:
                         daily_series = await self._async_fetch_daily(
-                            meter_id, history_value_type, backfill_days, now
+                            snapshot.meter.id, history_value_type, backfill_days, now
                         )
                         if daily_series and daily_series.points:
                             # Mark all dates in the expected window as fetched
@@ -163,7 +161,7 @@ class NetzeBwPortalHistoryManager:
 
                     if hourly_todo:
                         hourly_series = await self._async_fetch_per_date_history(
-                            meter_id, history_value_type, hourly_todo,
+                            snapshot.meter.id, history_value_type, hourly_todo,
                             MEASUREMENT_FILTER_HOUR, hourly_fetched,
                         )
                         if hourly_series:
@@ -185,7 +183,7 @@ class NetzeBwPortalHistoryManager:
 
                     if fifteenmin_todo:
                         fifteenmin_series = await self._async_fetch_per_date_history(
-                            meter_id, history_value_type, fifteenmin_todo,
+                            snapshot.meter.id, history_value_type, fifteenmin_todo,
                             MEASUREMENT_FILTER_15MIN, fifteenmin_fetched,
                         )
                         if fifteenmin_series:
@@ -394,9 +392,7 @@ class NetzeBwPortalHistoryManager:
 
 
 def _history_value_type(meter: MeterDefinition) -> str:
-    if VALUE_TYPE_FEEDIN in meter.value_types:
-        return VALUE_TYPE_FEEDIN
-    return VALUE_TYPE_CONSUMPTION
+    return meter.direction
 
 
 def _statistic_id(meter: MeterDefinition, interval: str) -> str:
@@ -406,7 +402,7 @@ def _statistic_id(meter: MeterDefinition, interval: str) -> str:
         resolution = "hourly"
     else:
         resolution = slugify(interval.lower())
-    return f"{DOMAIN}:{slugify(f'{meter.id}_{resolution}')}"
+    return f"{DOMAIN}:{slugify(f'{meter.key}_{resolution}')}"
 
 
 def _statistics_rows_from_series(series: MeasurementSeries) -> list[StatisticData]:

@@ -8,7 +8,7 @@ from datetime import datetime
 
 @dataclass
 class MeterDefinition:
-    """Base metadata for a discovered IMS meter."""
+    """Metadata for one logical meter: an installation plus a single direction."""
 
     id: str
     friendly_name: str
@@ -16,6 +16,13 @@ class MeterDefinition:
     value_types: list[str]
     meter_type: str
     state: str | None
+    direction: str
+    base_name: str
+
+    @property
+    def key(self) -> str:
+        """Stable identifier for devices, unique_ids, statistics and storage."""
+        return f"{self.id}_{self.direction.lower()}"
 
 
 @dataclass
