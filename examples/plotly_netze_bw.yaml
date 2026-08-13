@@ -6,9 +6,10 @@ last_hourly_point_entities:
   - sensor.your_consumption_last_hourly_point
   - sensor.your_feed_in_last_hourly_point
 entities:
-  # NOT sensor.* entity IDs! These are statistic IDs — find them under
-  # Developer Tools → Statistics, filter for "netze_bw_portal" and copy
-  # the "..._consumption_hourly" and "..._feedin_hourly" entries.
+  # NOT sensor.* entity IDs! These are statistic IDs — copy the state of
+  # the "Statistic IDs" / "Statistik-IDs" diagnostic sensor on each meter
+  # device (v0.6.2+), or find them under Developer Tools → Statistics by
+  # filtering for "netze_bw_portal".
   - entity: netze_bw_portal:YOUR_CONSUMPTION_STATISTIC_ID_hourly
     statistic: state
     period: hour

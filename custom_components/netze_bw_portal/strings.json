@@ -82,6 +82,9 @@
       "value_types": {
         "name": "Value types"
       },
+      "statistic_ids": {
+        "name": "Statistic IDs"
+      },
       "history_status": {
         "name": "History status"
       },

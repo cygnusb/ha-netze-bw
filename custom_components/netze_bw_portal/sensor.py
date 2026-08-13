@@ -20,8 +20,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import NetzeBwPortalConfigEntry
-from .const import DOMAIN, VALUE_TYPE_FEEDIN
+from .const import (
+    DOMAIN,
+    MEASUREMENT_FILTER_15MIN,
+    MEASUREMENT_FILTER_DAY,
+    MEASUREMENT_FILTER_HOUR,
+    VALUE_TYPE_FEEDIN,
+)
 from .coordinator import NetzeBwPortalCoordinator
+from .history import statistic_id
 from .models import MeterSnapshot
 
 
@@ -31,6 +38,7 @@ class NetzeBwSensorDescription(SensorEntityDescription):
 
     value_fn: Callable[[MeterSnapshot], Any]
     feedin_translation_key: str | None = None
+    attributes_fn: Callable[[MeterSnapshot], dict[str, Any]] | None = None
 
 
 SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
@@ -118,6 +126,17 @@ SENSOR_DESCRIPTIONS: tuple[NetzeBwSensorDescription, ...] = (
         translation_key="value_types",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda snapshot: ", ".join(snapshot.meter.value_types),
+    ),
+    NetzeBwSensorDescription(
+        key="statistic_ids",
+        translation_key="statistic_ids",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: statistic_id(snapshot.meter, MEASUREMENT_FILTER_HOUR),
+        attributes_fn=lambda snapshot: {
+            "statistic_id_daily": statistic_id(snapshot.meter, MEASUREMENT_FILTER_DAY),
+            "statistic_id_hourly": statistic_id(snapshot.meter, MEASUREMENT_FILTER_HOUR),
+            "statistic_id_15min": statistic_id(snapshot.meter, MEASUREMENT_FILTER_15MIN),
+        },
     ),
     NetzeBwSensorDescription(
         key="history_status",
@@ -270,9 +289,12 @@ class NetzeBwPortalSensor(CoordinatorEntity[NetzeBwPortalCoordinator], SensorEnt
         snapshot = self._snapshot
         if snapshot is None:
             return {}
-        return {
+        attributes = {
             "meter_id": snapshot.meter.id,
             "gateway_meter_id": snapshot.meter.meter_id,
             "value_types": snapshot.meter.value_types,
             "direction": snapshot.meter.direction,
         }
+        if self.entity_description.attributes_fn is not None:
+            attributes.update(self.entity_description.attributes_fn(snapshot))
+        return attributes

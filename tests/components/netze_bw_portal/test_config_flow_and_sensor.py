@@ -126,3 +126,43 @@ def test_history_api_calls_use_installation_id() -> None:
     )
     source_segment = ast.get_source_segment(source, method)
     assert "snapshot.meter.id, history_value_type" in source_segment
+
+
+def test_statistic_ids_diagnostic_sensor_is_declared() -> None:
+    """A diagnostic sensor must expose the recorder statistic IDs."""
+    tree = ast.parse(SENSOR_PATH.read_text())
+
+    found = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "NetzeBwSensorDescription":
+            continue
+        keywords = {kw.arg: kw.value for kw in node.keywords}
+        key = keywords.get("key")
+        if isinstance(key, ast.Constant) and key.value == "statistic_ids":
+            category = keywords.get("entity_category")
+            assert isinstance(category, ast.Attribute) and category.attr == "DIAGNOSTIC"
+            found = True
+    assert found
+
+
+def test_statistic_id_helper_is_shared_between_history_and_sensor() -> None:
+    """Sensor and history must build statistic IDs with the same function."""
+    history_source = HISTORY_PATH.read_text()
+    sensor_source = SENSOR_PATH.read_text()
+    assert "def statistic_id(" in history_source
+    assert "def _statistic_id(" not in history_source
+    assert "statistic_id" in sensor_source
+    assert "from .history import" in sensor_source
+
+
+def test_statistic_ids_sensor_is_translated() -> None:
+    """statistic_ids needs entries in strings.json and all translations."""
+    import json
+
+    base = ROOT / "custom_components" / "netze_bw_portal"
+    for path in [base / "strings.json", *sorted((base / "translations").glob("*.json"))]:
+        data = json.loads(path.read_text())
+        sensors = data["entity"]["sensor"]
+        assert "statistic_ids" in sensors, path.name

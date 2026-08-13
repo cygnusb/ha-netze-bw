@@ -58,6 +58,7 @@ Each discovered meter gets the following sensors:
 | Metering code | MeLo-ID (formatted in groups of 4) |
 | SMGW ID | Smart meter gateway ID |
 | Value types | Available measurement value types |
+| Statistic IDs | Recorder statistic IDs for this meter (state: hourly; attributes: daily/hourly/15min) — copy these into dashboard cards |
 | History status | `ok` / `gaps` / `error` / `disabled` |
 | Last daily history point | Timestamp of the newest daily statistic pushed to HA |
 | Last hourly history point | Timestamp of the newest hourly statistic pushed to HA |
@@ -88,7 +89,7 @@ A ready-to-use [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-gr
 
 The example contains two different kinds of placeholders:
 
-- The `entity:` lines under `entities:` take **statistic IDs** (`netze_bw_portal:..._hourly`), **not** `sensor.*` entity IDs. Find yours in **Developer Tools → Statistics**: filter for `netze_bw_portal` and copy the two `..._consumption_hourly` and `..._feedin_hourly` IDs. (They are built from the installation ID — a 32-character hex string, also shown as the `meter_id` attribute on every sensor — plus the direction, so you cannot derive them from the entity names.)
+- The `entity:` lines under `entities:` take **statistic IDs** (`netze_bw_portal:..._hourly`), **not** `sensor.*` entity IDs. The easiest way (v0.6.2+): open the meter's device page and copy the value of the diagnostic sensor **"Statistic IDs" / „Statistik-IDs"** — its state is the hourly statistic ID, and the daily/15-minute variants are in its attributes. Alternatively, find them in **Developer Tools → Statistics** by filtering for `netze_bw_portal`. (They are built from the internal installation ID plus the direction, so you cannot derive them from the entity names.)
 - `last_hourly_point_entities` takes regular **entity IDs** of the diagnostic sensor(s) named `Letzter Stundenwert` / `Last hourly history point`.
 
 ## Installation

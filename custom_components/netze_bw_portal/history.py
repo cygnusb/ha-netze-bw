@@ -379,7 +379,7 @@ class NetzeBwPortalHistoryManager:
             mean_type=0,
             name=f"{meter.friendly_name} {series.interval.lower()}",
             source=DOMAIN,
-            statistic_id=_statistic_id(meter, series.interval),
+            statistic_id=statistic_id(meter, series.interval),
             unit_of_measurement=series.unit or "kWh",
             unit_class="energy",
         )
@@ -395,7 +395,8 @@ def _history_value_type(meter: MeterDefinition) -> str:
     return meter.direction
 
 
-def _statistic_id(meter: MeterDefinition, interval: str) -> str:
+def statistic_id(meter: MeterDefinition, interval: str) -> str:
+    """Build the external statistic id for a logical meter and interval."""
     if interval == MEASUREMENT_FILTER_DAY:
         resolution = "daily"
     elif interval == MEASUREMENT_FILTER_HOUR:
