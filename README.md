@@ -86,7 +86,10 @@ A ready-to-use [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-gr
 
 ![Plotly graph showing hourly consumption and feed-in with night shading](examples/plotly.png)
 
-Replace `YOUR_CONSUMPTION_METER_ID` and `YOUR_FEED_IN_METER_ID` with your actual meter IDs from the sensor entity names. Also set `last_hourly_point_entities` to the entity IDs of your diagnostic sensor(s) named `Letzter Stundenwert` / `Last hourly history point`.
+The example contains two different kinds of placeholders:
+
+- The `entity:` lines under `entities:` take **statistic IDs** (`netze_bw_portal:..._hourly`), **not** `sensor.*` entity IDs. Find yours in **Developer Tools → Statistics**: filter for `netze_bw_portal` and copy the two `..._consumption_hourly` and `..._feedin_hourly` IDs. (They are built from the installation ID — a 32-character hex string, also shown as the `meter_id` attribute on every sensor — plus the direction, so you cannot derive them from the entity names.)
+- `last_hourly_point_entities` takes regular **entity IDs** of the diagnostic sensor(s) named `Letzter Stundenwert` / `Last hourly history point`.
 
 ## Installation
 

@@ -1,10 +1,15 @@
 type: custom:plotly-graph
 title: Netze BW – Stündlicher Verbrauch & Einspeisung
+# Entity IDs of the "Last hourly history point" / "Letzter Stundenwert"
+# diagnostic sensors (regular sensor.* entity IDs):
 last_hourly_point_entities:
   - sensor.your_consumption_last_hourly_point
   - sensor.your_feed_in_last_hourly_point
 entities:
-  - entity: netze_bw_portal:YOUR_CONSUMPTION_METER_ID_hourly
+  # NOT sensor.* entity IDs! These are statistic IDs — find them under
+  # Developer Tools → Statistics, filter for "netze_bw_portal" and copy
+  # the "..._consumption_hourly" and "..._feedin_hourly" entries.
+  - entity: netze_bw_portal:YOUR_CONSUMPTION_STATISTIC_ID_hourly
     statistic: state
     period: hour
     name: Verbrauch
@@ -15,7 +20,7 @@ entities:
       - map_y: y ?? 0
     marker:
       color: rgba(230, 80, 60, 0.8)
-  - entity: netze_bw_portal:YOUR_FEED_IN_METER_ID_hourly
+  - entity: netze_bw_portal:YOUR_FEED_IN_STATISTIC_ID_hourly
     statistic: state
     period: hour
     name: Einspeisung
