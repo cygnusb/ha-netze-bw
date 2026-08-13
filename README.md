@@ -1,7 +1,7 @@
 # Netze BW Portal Integration for Home Assistant
 
 <p align="center">
-  <img src="assets/logo.svg" width="220" alt="Netze BW Portal logo">
+  <img src="https://raw.githubusercontent.com/cygnusb/ha-netze-bw/main/assets/logo.svg" width="220" alt="Netze BW Portal logo">
 </p>
 
 [![GitHub Release][release-badge]][release-url]
