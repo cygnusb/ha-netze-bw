@@ -1,0 +1,29 @@
+name: Release
+
+# Attaches the integration as a ZIP to every published release. HACS installs
+# this asset (zip_release in hacs.json) and its download counter counts it.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    name: Attach ZIP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ZIP
+        run: |
+          cd custom_components/netze_bw_portal
+          zip -r "$GITHUB_WORKSPACE/netze_bw_portal.zip" . -x "__pycache__/*" "*/__pycache__/*" "*.pyc"
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" netze_bw_portal.zip --clobber
