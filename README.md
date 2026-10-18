@@ -161,7 +161,7 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 [hacs-url]: https://hacs.xyz
 [ha-badge]: https://img.shields.io/badge/HA-2025.1.0+-blue.svg
 [ha-url]: https://www.home-assistant.io/
-[license-badge]: https://img.shields.io/github/license/cygnusb/ha-netze-bw
+[license-badge]: https://img.shields.io/badge/license-MIT-green.svg
 [license-url]: https://github.com/cygnusb/ha-netze-bw/blob/main/LICENSE
 [commits-badge]: https://img.shields.io/github/commit-activity/y/cygnusb/ha-netze-bw
 [commits-url]: https://github.com/cygnusb/ha-netze-bw/commits/main
