@@ -83,14 +83,19 @@ On first setup, the integration fetches all 30 days of daily history (one API ca
 
 ## Plotly Graph Example
 
-A ready-to-use [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-graph-card) example is included in [`examples/plotly_netze_bw.yaml`](examples/plotly_netze_bw.yaml). It shows hourly consumption and feed-in as stacked bars with night-time shading from the `sun.sun` integration plus a shaded overlay for the period where hourly history is not available yet.
+A ready-to-use [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-graph-card) example is included in [`examples/plotly_netze_bw.yaml`](examples/plotly_netze_bw.yaml). It shows the grid balance per hour:
 
-![Plotly graph showing hourly consumption and feed-in with night shading](examples/plotly.png)
+- consumption as bars pointing up, feed-in pointing down, in average kW per hour (an hourly value in kWh is numerically the average power in kW); the tooltip shows both kWh and kW
+- daily totals in kWh above every day that is fully loaded
+- buttons to switch between 24 hours, 3 days and 7 days (the card loads the extra days itself)
+- hatched areas for missing hours and a dotted area from the last available hour up to now, both computed from the loaded statistics
+- night-time shading from the `sun.sun` integration
 
-The example contains two different kinds of placeholders:
+![Plotly graph showing hourly consumption up and feed-in down, daily totals, night shading and the period without data yet](examples/plotly.png)
 
-- The `entity:` lines under `entities:` take **statistic IDs** (`netze_bw_portal:..._hourly`), **not** `sensor.*` entity IDs. The easiest way (v0.6.2+): open the meter's device page and copy the value of the diagnostic sensor **"Statistic IDs" / „Statistik-IDs"** — its state is the hourly statistic ID, and the daily/15-minute variants are in its attributes. Alternatively, find them in **Developer Tools → Statistics** by filtering for `netze_bw_portal`. (They are built from the internal installation ID plus the direction, so you cannot derive them from the entity names.)
-- `last_hourly_point_entities` takes regular **entity IDs** of the diagnostic sensor(s) named `Letzter Stundenwert` / `Last hourly history point`.
+Replace the two placeholders in the `entity:` lines under `entities:` with **statistic IDs** (`netze_bw_portal:..._hourly`), **not** `sensor.*` entity IDs. The easiest way (v0.6.2+): open the meter's device page and copy the value of the diagnostic sensor **"Statistic IDs" / „Statistik-IDs"** — its state is the hourly statistic ID, and the daily/15-minute variants are in its attributes. Alternatively, find them in **Developer Tools → Statistics** by filtering for `netze_bw_portal`. (They are built from the internal installation ID plus the direction, so you cannot derive them from the entity names.)
+
+Home Assistant stores the imported history as hourly statistics only, including the 15-minute series, so the card cannot show 15-minute bars.
 
 ## Installation
 

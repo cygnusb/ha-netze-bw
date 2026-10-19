@@ -1,152 +1,225 @@
 type: custom:plotly-graph
-title: Netze BW – Stündlicher Verbrauch & Einspeisung
-# Entity IDs of the "Last hourly history point" / "Letzter Stundenwert"
-# diagnostic sensors (regular sensor.* entity IDs):
-last_hourly_point_entities:
-  - sensor.your_consumption_last_hourly_point
-  - sensor.your_feed_in_last_hourly_point
+title: Netze BW – Bezug & Einspeisung
+hours_to_show: 72
+refresh_interval: 3600
+disable_pinch_to_zoom: true
+autorange_after_scroll: true
 entities:
-  # NOT sensor.* entity IDs! These are statistic IDs — copy the state of
-  # the "Statistic IDs" / "Statistik-IDs" diagnostic sensor on each meter
-  # device (v0.6.2+), or find them under Developer Tools → Statistics by
-  # filtering for "netze_bw_portal".
+  # Statistik-IDs, KEINE sensor.*-IDs: Zustand des Diagnose-Sensors
+  # "Statistik-IDs" am jeweiligen Zähler-Gerät kopieren.
   - entity: netze_bw_portal:YOUR_CONSUMPTION_STATISTIC_ID_hourly
     statistic: state
     period: hour
-    name: Verbrauch
+    name: Bezug
     type: bar
-    width: 3600000
-    filters:
-      - resample: 1h
-      - map_y: y ?? 0
+    offset: 60000       # Balken beginnt an der vollen Stunde
+    width: 3480000      # 58 min, 2 min Fuge
     marker:
-      color: rgba(230, 80, 60, 0.8)
+      color: rgba(235, 104, 52, 0.9)
+    hovertemplate: "Bezug %{y:.2f} kWh (Ø %{y:.2f} kW)<extra></extra>"
+    filters:
+      - store_var: bezug
   - entity: netze_bw_portal:YOUR_FEED_IN_STATISTIC_ID_hourly
     statistic: state
     period: hour
     name: Einspeisung
     type: bar
-    width: 3600000
-    filters:
-      - resample: 1h
-      - map_y: y ?? 0
+    offset: 60000
+    width: 3480000
     marker:
-      color: rgba(60, 180, 80, 0.8)
-hours_to_show: 144
-refresh_interval: 3600
-disable_pinch_to_zoom: true
+      color: rgba(27, 175, 122, 0.9)
+    hovertemplate: "Einspeisung %{customdata:.2f} kWh (Ø %{customdata:.2f} kW)<extra></extra>"
+    filters:
+      - store_var: einsp   # vor map_y: Tagessummen und Tooltip brauchen positive Werte
+      - map_y: -y
+    # nach den Filtern auswerten: positiver Wert für den Tooltip
+    customdata: $ex vars.einsp?.ys ?? []
+  # --- Datenlage, berechnet aus den beiden Statistiken oben ---
+  - entity: ""
+    name: Lücke
+    yaxis: y2
+    mode: lines
+    fill: toself
+    line:
+      width: 0
+    fillcolor: rgba(120, 128, 134, 0.07)
+    fillpattern:
+      shape: /
+      size: 7
+      solidity: 0.25
+      fgcolor: rgba(90, 98, 104, 0.5)
+      bgcolor: rgba(120, 128, 134, 0.07)
+    hoverinfo: skip
+    extend_to_present: false
+    filters:
+      - fn: |-
+          ({ vars }) => {
+            const H = 3600000;
+            // auf volle Stunden: die Karte setzt den ersten Wert auf den Fensteranfang
+            const have = [...(vars.bezug?.xs ?? []), ...(vars.einsp?.xs ?? [])]
+              .map((x) => Math.floor(+new Date(x) / H) * H);
+            if (!have.length) return { xs: [], ys: [] };
+            const start = Math.min(...have);
+            const present = new Set(have);
+            const last = Math.max(...have);
+            const xs = [];
+            const ys = [];
+            let run = null;
+            for (let t = start; t <= last + H; t += H) {
+              const missing = t <= last && !present.has(t);
+              if (missing && run === null) run = t;
+              if (!missing && run !== null) {
+                xs.push(new Date(run), new Date(run), new Date(t), new Date(t), null);
+                ys.push(0, 1, 1, 0, null);
+                run = null;
+              }
+            }
+            return { xs, ys };
+          }
+  - entity: ""
+    name: Noch keine Daten
+    yaxis: y2
+    mode: lines
+    fill: toself
+    line:
+      width: 0
+    fillcolor: rgba(120, 128, 134, 0.07)
+    fillpattern:
+      shape: "."
+      size: 5
+      solidity: 0.3
+      fgcolor: rgba(90, 98, 104, 0.5)
+      bgcolor: rgba(120, 128, 134, 0.07)
+    hoverinfo: skip
+    extend_to_present: false
+    filters:
+      - fn: |-
+          ({ vars }) => {
+            const H = 3600000;
+            const xs = [...(vars.bezug?.xs ?? []), ...(vars.einsp?.xs ?? [])].map((x) => +new Date(x));
+            if (!xs.length) return { xs: [], ys: [] };
+            const from = new Date(Math.max(...xs) + H);
+            // knapp vor "jetzt": die Karte schneidet Punkte nach ihrem Abrufzeitpunkt ab
+            const to = new Date(Date.now() - 60000);
+            if (from >= to) return { xs: [], ys: [] };
+            return { xs: [from, from, to, to, from], ys: [0, 1, 1, 0, 0] };
+          }
 layout:
-  barmode: stack
+  height: 400
+  separators: ",."
+  barmode: relative
   bargap: 0
-  bargroupgap: 0
   hovermode: x unified
   dragmode: false
+  annotations: |
+    $fn ({ vars }) => {
+      // Tagessummen in kWh, nur für Tage mit vollständig geladenen Stundenwerten
+      const H = 3600000;
+      const days = {};
+      const add = (v, key) => (v?.xs ?? []).forEach((x, i) => {
+        const d = new Date(x);
+        d.setHours(12, 0, 0, 0);
+        const k = +d;
+        days[k] ??= { b: 0, e: 0, n: 0 };
+        days[k][key] += v.ys[i] ?? 0;
+        if (key === "b") days[k].n += 1;
+      });
+      add(vars.bezug, "b");
+      add(vars.einsp, "e");
+      const f = (n) => n.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      // ab 4 Tagen: Einheit nur einmal am linken Rand, sonst überlappen die Summen
+      const ts = (vars.bezug?.xs ?? []).map((x) => +new Date(x));
+      const compact = ts.length > 0 && Math.max(...ts) - Math.min(...ts) > 4 * 24 * H;
+      const unit = compact ? "" : " kWh";
+      const out = Object.entries(days)
+        .filter(([, s]) => s.n >= 23) // 23–25 Stunden (Zeitumstellung)
+        .map(([k, s]) => ({
+          x: new Date(+k), xref: "x", y: 1, yref: "paper", yanchor: "bottom",
+          showarrow: false, align: "center", font: { size: compact ? 10 : 11 },
+          text: `<span style="color:rgb(235,104,52)">▲</span> ${f(s.b)}${unit}` +
+                `<br><span style="color:rgb(27,175,122)">▼</span> ${f(s.e)}${unit}`,
+        }));
+      if (compact && out.length) {
+        out.push({
+          xref: "paper", x: 0, xanchor: "right", y: 1, yref: "paper", yanchor: "bottom",
+          showarrow: false, align: "right", font: { size: 10 }, text: "kWh<br>je Tag",
+        });
+      }
+      return out;
+    }
   shapes: |
     $fn ({ hass, getFromConfig }) => {
-      const sun = hass.states['sun.sun'];
-      const nextRising = new Date(sun.attributes.next_rising);
-      const nextSetting = new Date(sun.attributes.next_setting);
-      const now = new Date();
-      const hoursToShow = getFromConfig("hours_to_show");
-      const lastHourlyPointEntities = getFromConfig("last_hourly_point_entities") ?? [];
-      const entityIds = Array.isArray(lastHourlyPointEntities)
-        ? lastHourlyPointEntities
-        : [lastHourlyPointEntities];
-      const start = new Date(now.getTime() - hoursToShow * 3600000);
       const DAY = 86400000;
-      const numDays = Math.ceil(hoursToShow / 24) + 2;
+      const now = new Date();
       const shapes = [];
-      const latestHourlyPoint = entityIds
-        .map((entityId) => hass.states[entityId]?.state)
-        .filter((state) => state && state !== "unknown" && state !== "unavailable")
-        .map((state) => new Date(state))
-        .filter((date) => !Number.isNaN(date.getTime()))
-        .sort((a, b) => b.getTime() - a.getTime())[0];
-
-      for (let i = 0; i < numDays; i++) {
-        const sunset = new Date(nextSetting.getTime() - i * DAY);
-        const sunrise = new Date(nextRising.getTime() - i * DAY);
-        if (sunset < now && sunrise > start) {
-          shapes.push({
-            type: "rect",
-            xref: "x",
-            yref: "paper",
-            x0: sunset,
-            x1: sunrise,
-            y0: 0,
-            y1: 1,
-            fillcolor: "rgba(70, 90, 120, 0.10)",
-            line: { width: 0 },
-            layer: "below",
-          });
+      const sun = hass.states["sun.sun"];
+      if (sun) {
+        const rise = +new Date(sun.attributes.next_rising);
+        let set = +new Date(sun.attributes.next_setting);
+        if (set > rise) set -= DAY; // nachts: laufende Nacht begann gestern
+        for (let i = 0; i < 31; i++) {
+          const x0 = new Date(set - i * DAY);
+          const x1 = new Date(rise - i * DAY);
+          if (x0 < now) {
+            shapes.push({
+              type: "rect", xref: "x", yref: "paper", x0, x1, y0: 0, y1: 1,
+              fillcolor: "rgba(60, 82, 120, 0.08)", line: { width: 0 }, layer: "below",
+            });
+          }
         }
       }
-
-      if (latestHourlyPoint) {
-        const shadeStart = new Date(
-          Math.max(latestHourlyPoint.getTime(), start.getTime())
-        );
-        if (shadeStart < now) {
-          shapes.push({
-            type: "rect",
-            xref: "x",
-            yref: "paper",
-            x0: shadeStart,
-            x1: now,
-            y0: 0,
-            y1: 1,
-            fillcolor: "rgba(120, 120, 120, 0.16)",
-            line: {
-              color: "rgba(120, 120, 120, 0.55)",
-              width: 1,
-              dash: "dot",
-            },
-            layer: "below",
-          });
-          shapes.push({
-            type: "line",
-            xref: "x",
-            yref: "paper",
-            x0: shadeStart,
-            x1: shadeStart,
-            y0: 0,
-            y1: 1,
-            line: {
-              color: "rgba(120, 120, 120, 0.75)",
-              width: 2,
-              dash: "dot",
-            },
-            layer: "above",
-          });
-        }
-      }
+      shapes.push({
+        type: "line", xref: "x", yref: "paper", x0: now, x1: now, y0: 0, y1: 1,
+        line: { color: "rgba(120, 128, 134, 0.8)", width: 1, dash: "dot" },
+      });
       return shapes;
     }
   yaxis:
-    title: kWh
-    ticksuffix: " kWh"
+    title:
+      text: "▼ Einspeisung · Bezug ▲   (Ø kW)"
+      font:
+        size: 11
+    ticksuffix: " kW"
+    zeroline: true
+    zerolinewidth: 1.5
     fixedrange: true
-    showspikes: true
-    spikemode: across
-    spikesnap: cursor
-    spikecolor: rgba(180, 180, 180, 0.5)
-    spikedash: dot
-    spikethickness: 1
+  yaxis2:
+    overlaying: "y"
+    range: [0, 1]
+    visible: false
+    fixedrange: true
   xaxis:
-    tickformat: "%d.%m"
+    tickformat: "%d.%m."
+    dtick: 86400000     # ein Datum pro Tag (Mitternacht)
+    hoverformat: "%d.%m. %H:%M"
     fixedrange: true
-    showspikes: true
-    spikemode: across
-    spikesnap: cursor
-    spikecolor: rgba(180, 180, 180, 0.5)
-    spikedash: dot
-    spikethickness: 1
+    rangeselector:
+      x: 0
+      xanchor: left
+      "y": 1.2
+      yanchor: bottom
+      font:
+        size: 11
+      buttons:
+        - count: 24
+          step: hour
+          stepmode: backward
+          label: 24 h
+        - count: 3
+          step: day
+          stepmode: backward
+          label: 3 Tage
+        - count: 7
+          step: day
+          stepmode: backward
+          label: 7 Tage
   legend:
     orientation: h
-    "y": -0.2
+    "y": -0.1
+    yanchor: top
   margin:
-    t: 30
-    b: 60
+    t: 90
+    b: 80
 config:
   scrollZoom: false
   displayModeBar: false
