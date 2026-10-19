@@ -15,6 +15,8 @@
 
 Home Assistant integration for the [Netze BW portal](https://meine.netze-bw.de) — automatic smart meter discovery, real-time sensors, and up to 30 days of energy history for the Energy Dashboard.
 
+Project website (German): **[cygnusb.github.io/ha-netze-bw](https://cygnusb.github.io/ha-netze-bw/)**
+
 ## Features
 
 - Authenticates via username/password against the Netze BW Auth0 login

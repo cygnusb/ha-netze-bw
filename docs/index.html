@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Netze BW Portal für Home Assistant</title>
+<meta name="description" content="Home-Assistant-Integration für meine.netze-bw.de: Zählerstände und Lastgänge des intelligenten Messsystems im Energie-Dashboard.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="canonical" href="https://cygnusb.github.io/ha-netze-bw/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Netze BW Portal für Home Assistant">
+<meta property="og:description" content="Zählerstände und Lastgänge des intelligenten Messsystems aus meine.netze-bw.de im Energie-Dashboard von Home Assistant.">
+<meta property="og:url" content="https://cygnusb.github.io/ha-netze-bw/">
+<meta property="og:image" content="https://raw.githubusercontent.com/cygnusb/ha-netze-bw/main/examples/plotly.png">
+<meta name="color-scheme" content="light dark">
+<style>
+/* Schriften lokal ausgeliefert (SIL Open Font License, siehe fonts/), keine Anfragen an Google Fonts */
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/atkinson-hyperlegible-400.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: italic; font-weight: 400; font-display: swap; src: url("fonts/atkinson-hyperlegible-400-italic.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/atkinson-hyperlegible-700.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/barlow-condensed-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-style: normal; font-weight: 600; font-display: swap; src: url("fonts/barlow-condensed-600.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/barlow-condensed-700.woff2") format("woff2"); }
+/* Layout: left-aligned text column beside a drawn meter faceplate; below, one narrow reading column
+   that widens only for the data-flow strip, the screenshot and the two install sequences.
+   Type: Barlow Condensed is close to DIN 1451, the lettering of German meter nameplates and
+   Zählerschrank labels; Atkinson Hyperlegible keeps long setup steps and footnotes easy to read. */
+:root {
+  --paper: #f3f5f6;          /* Zählerschrank-Blech, kühl */
+  --surface: #ffffff;
+  --ink: #16212b;
+  --ink-2: #4b5966;
+  --ink-3: #6f7d88;
+  --rule: #d5dce1;
+  --night: rgba(11, 77, 139, 0.06);   /* Nachtband im Lastgang */
+  --pending: rgba(22, 33, 43, 0.34);  /* Punkte: noch keine Daten */
+  --navy: #0b4d8b;           /* Projektlogo */
+  --orange: #f26a21;         /* Projektlogo, nur für Bezug */
+  --feed: #1d8f6a;
+  --housing: #e4e8eb;
+  --housing-edge: #c3cbd1;
+  --housing-ink: #5b6872;
+  --lcd: #b9c4a8;
+  --lcd-ink: #1e2419;
+  --lcd-ghost: rgba(30, 36, 25, 0.09);
+  --plate: #dfe3e6;
+  --focus: #0b4d8b;
+  --on-navy: #ffffff;
+  --font-head: "Barlow Condensed", "DIN Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --measure: 66ch;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121a21; --surface: #18222b; --ink: #e8eef2; --ink-2: #a9b6c0; --ink-3: #82919c; --rule: #2a3742;
+    --night: rgba(150, 185, 230, 0.07); --pending: rgba(220, 230, 240, 0.34);
+    --navy: #6aa7e3; --orange: #ff8a4c; --feed: #3fbf92;
+    --housing: #c9d0d5; --housing-edge: #9aa5ad; --housing-ink: #4c5860;
+    --plate: #222e38; --focus: #8cc0f0; --on-navy: #0d1b28;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121a21; --surface: #18222b; --ink: #e8eef2; --ink-2: #a9b6c0; --ink-3: #82919c; --rule: #2a3742;
+    --night: rgba(150, 185, 230, 0.07); --pending: rgba(220, 230, 240, 0.34);
+  --navy: #6aa7e3; --orange: #ff8a4c; --feed: #3fbf92;
+  --housing: #c9d0d5; --housing-edge: #9aa5ad; --housing-ink: #4c5860;
+  --plate: #222e38; --focus: #8cc0f0; --on-navy: #0d1b28;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 var(--font-body); }
+a { color: var(--navy); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.86em; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 0.05em 0.35em; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+h1, h2, h3 { font-family: var(--font-head); font-weight: 600; line-height: 1.05; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(42px, 6.4vw, 76px); letter-spacing: -0.005em; }
+h2 { font-size: clamp(30px, 3.6vw, 40px); }
+h3 { font-size: 23px; font-weight: 600; }
+p { margin: 0; }
+
+/* header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 22px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 21px/1 var(--font-head); color: var(--ink); text-decoration: none; }
+.brand svg { width: 34px; height: 34px; flex: none; }
+.top nav { display: flex; gap: 22px; font-size: 15px; }
+.top nav a { color: var(--ink-2); text-decoration: none; }
+.top nav a:hover { color: var(--ink); text-decoration: underline; }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: center; padding-block: 40px 72px; }
+.hero-text { display: grid; gap: 22px; min-width: 0; }
+.lede { font-size: 20px; color: var(--ink-2); max-width: 34em; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+.btn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 20px; border-radius: 6px; font: 600 19px/1 var(--font-head); letter-spacing: 0.01em; text-decoration: none; }
+.btn-primary { background: var(--navy); color: var(--on-navy); }
+.btn-primary:hover { background: color-mix(in srgb, var(--navy) 86%, #000); }
+.btn-secondary { color: var(--navy); border: 1.5px solid currentColor; }
+.btn svg { width: 20px; height: 20px; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 15px; color: var(--ink-2); }
+
+/* meter faceplate */
+.meter { position: relative; justify-self: center; width: min(100%, 440px); background: linear-gradient(180deg, color-mix(in srgb, var(--housing) 92%, #fff), var(--housing)); border: 1px solid var(--housing-edge); border-radius: 18px; padding: 28px 26px 22px; display: grid; gap: 22px; box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 24px 40px -24px rgba(16, 33, 48, 0.45); color: var(--housing-ink); }
+.meter::before, .meter::after { content: ""; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #f4f6f7, #a8b2b9); box-shadow: inset 0 0 0 1px #8f9aa2; top: 12px; }
+.meter::before { left: 12px; } .meter::after { right: 12px; }
+.meter-head { display: flex; justify-content: space-between; align-items: baseline; font: 600 15px/1 var(--font-head); letter-spacing: 0.04em; }
+.meter-head span:last-child { font-weight: 500; }
+.lcd-frame { background: #3a4248; border-radius: 10px; padding: 10px; box-shadow: inset 0 2px 6px rgba(0,0,0,0.5); }
+.lcd { position: relative; background: linear-gradient(170deg, #c8d2b8 0%, var(--lcd) 45%, #aab597 100%); border-radius: 4px; overflow: hidden; }
+.lcd::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0) 38%); pointer-events: none; }
+.lcd svg { display: block; width: 100%; height: auto; }
+.meter-mid { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; }
+.labels { display: grid; gap: 6px; font: 500 14px/1.25 var(--font-head); letter-spacing: 0.03em; }
+.labels b { font-weight: 600; }
+.led-block { display: grid; justify-items: center; gap: 6px; font: 500 13px/1 var(--font-head); letter-spacing: 0.03em; }
+.led { width: 14px; height: 14px; border-radius: 50%; background: #6b1c17; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+.led.on { background: #ff3b2f; box-shadow: 0 0 10px 3px rgba(255, 59, 47, 0.55), inset 0 0 0 1px rgba(0,0,0,0.2); }
+.optical { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--housing-edge); background: radial-gradient(circle, #2f363b 0 9px, #59636a 10px 13px, transparent 14px); }
+.nameplate { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; border-top: 1px solid var(--housing-edge); padding-top: 12px; font: 500 13px/1.3 var(--font-head); letter-spacing: 0.04em; }
+.nameplate span:nth-child(even) { text-align: right; }
+.meter-caption { margin-top: 14px; font-size: 14px; color: var(--ink-2); text-align: center; }
+
+/* week load profile: full-bleed chart under the hero */
+.week { padding-block: 48px 20px; }
+.week-head { display: grid; gap: 10px; margin-bottom: 20px; }
+.week-head p { color: var(--ink-2); max-width: var(--measure); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 15px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { width: 14px; height: 12px; border-radius: 2px; display: inline-block; }
+.legend .sw-b { background: var(--orange); }
+.legend .sw-e { background: var(--feed); }
+.legend .sw-n { background: var(--night); box-shadow: inset 0 0 0 1px var(--rule); }
+.legend .sw-p { background: radial-gradient(var(--pending) 1px, transparent 1.4px) 0 0 / 5px 5px; box-shadow: inset 0 0 0 1px var(--rule); }
+.week-chart { height: 320px; }
+.week-chart svg { display: block; width: 100%; height: 100%; }
+
+/* sections */
+section { padding-block: 64px; border-top: 1px solid var(--rule); }
+.section-head { display: grid; gap: 12px; max-width: var(--measure); margin-bottom: 36px; }
+.section-head p { color: var(--ink-2); }
+
+/* data flow: a real sequence */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; counter-reset: step; }
+.flow li { position: relative; padding: 0 28px 0 0; display: grid; gap: 10px; align-content: start; counter-increment: step; min-width: 0; }
+.flow li::before { content: counter(step); display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--navy); color: var(--navy); font: 700 21px/1 var(--font-head); background: var(--paper); position: relative; z-index: 1; }
+.flow li:not(:last-child)::after { content: ""; position: absolute; top: 20px; left: 40px; right: 0; border-top: 2px dashed var(--rule); }
+.flow p { color: var(--ink-2); font-size: 16px; }
+
+/* features: two-column list, lead phrase in the heading face */
+.features { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px 56px; }
+.features li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 14px; }
+.features li::before { content: ""; width: 10px; height: 10px; margin-top: 9px; background: var(--navy); grid-row: span 2; }
+.features h3 { font-size: 22px; }
+.features p { color: var(--ink-2); font-size: 16px; }
+.features .bezug { color: var(--orange); font-weight: 700; }
+.features .einsp { color: var(--feed); font-weight: 700; }
+
+/* dashboard */
+.dash { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr); gap: 48px; align-items: start; }
+.shot { margin: 0; display: grid; gap: 12px; min-width: 0; }
+.shot img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--rule); background: #fff; display: block; }
+.shot figcaption { font-size: 14px; color: var(--ink-2); }
+.dash-text { display: grid; gap: 16px; min-width: 0; }
+.dash-text p { color: var(--ink-2); }
+.dash-text ul { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; font-size: 16px; }
+
+/* install */
+.install { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; }
+.install > div { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.install ol { margin: 0; padding-left: 0; list-style: none; counter-reset: s; display: grid; gap: 12px; }
+.install ol li { counter-increment: s; position: relative; padding-left: 34px; }
+.install ol li::before { content: counter(s); position: absolute; left: 0; top: 0; font: 700 22px/1.15 var(--font-head); color: var(--navy); }
+.install code { overflow-wrap: anywhere; }
+.install .note { font-size: 15px; color: var(--ink-2); }
+
+/* limits as engraved type plate */
+.plate { background: var(--plate); border: 1px solid var(--rule); border-radius: 10px; padding: 26px 28px; display: grid; gap: 16px; max-width: 760px; position: relative; }
+.plate::before, .plate::after { content: ""; position: absolute; top: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--rule); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 20%, transparent); }
+.plate::before { left: 12px; } .plate::after { right: 12px; }
+.plate dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 22px; }
+.plate dt { font: 600 18px/1.4 var(--font-head); }
+.plate dd { margin: 0; color: var(--ink-2); font-size: 16px; }
+
+footer { border-top: 1px solid var(--rule); padding-block: 32px 48px; color: var(--ink-2); font-size: 15px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; }
+
+@media (max-width: 860px) {
+  .hero { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-block: 16px 56px; }
+  .meter { width: min(100%, 360px); }
+  .flow { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+  .flow li { grid-template-columns: 40px minmax(0, 1fr); column-gap: 16px; padding: 0; }
+  .flow li::before { grid-row: span 2; }
+  .flow li:not(:last-child)::after { top: 40px; bottom: -26px; left: 19px; right: auto; border-top: 0; border-left: 2px dashed var(--rule); }
+  .features, .dash, .install { grid-template-columns: minmax(0, 1fr); }
+  .top nav { display: none; }
+  .week-chart { height: 250px; }
+  section { padding-block: 48px; }
+}
+@media (max-width: 480px) {
+  .wrap { padding-inline: 16px; }
+  body { font-size: 16px; }
+  .lede { font-size: 18px; }
+  .plate { padding: 24px 18px; }
+  .plate dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .plate dd { margin-bottom: 10px; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#">
+      <svg viewBox="76 64 360 360" aria-hidden="true">
+        <defs>
+          <linearGradient id="lg-bg" x1="76" y1="64" x2="436" y2="448" gradientUnits="userSpaceOnUse"><stop stop-color="#0B4D8B"/><stop offset="1" stop-color="#1A7FB8"/></linearGradient>
+          <linearGradient id="lg-ac" x1="164" y1="112" x2="354" y2="352" gradientUnits="userSpaceOnUse"><stop stop-color="#FFB34A"/><stop offset="1" stop-color="#F26A21"/></linearGradient>
+        </defs>
+        <rect x="76" y="64" width="360" height="360" rx="88" fill="url(#lg-bg)"/>
+        <path d="M328 112L388 112L388 172L204 356L144 356L144 296L328 112Z" fill="url(#lg-ac)"/>
+        <circle cx="244" cy="244" r="86" fill="#F8FBFD"/>
+        <circle cx="244" cy="244" r="61" stroke="#0B4D8B" stroke-width="14" fill="none"/>
+        <path d="M244 244L302 197" stroke="#F26A21" stroke-width="18" stroke-linecap="round"/>
+        <circle cx="244" cy="244" r="13" fill="#F26A21"/>
+      </svg>
+      Netze BW Portal
+    </a>
+    <nav aria-label="Seitenbereiche">
+      <a href="#ablauf">So funktioniert es</a>
+      <a href="#dashboard">Dashboard</a>
+      <a href="#installation">Installation</a>
+      <a href="https://github.com/cygnusb/ha-netze-bw">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div class="hero-text">
+      <h1>Netze BW Portal für Home Assistant</h1>
+      <p class="lede">Die Integration holt Zählerstände sowie Tages-, Stunden- und Viertelstundenwerte deines intelligenten Messsystems aus meine.netze-bw.de ins Energie-Dashboard von Home Assistant.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/cygnusb/ha-netze-bw">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Auf GitHub ansehen
+        </a>
+        <a class="btn btn-secondary" href="#installation">Installation</a>
+      </div>
+      <p class="facts"><span>Installation über HACS</span><span>Home Assistant ab 2025.1</span><span>MIT-Lizenz</span></p>
+    </div>
+
+    <div>
+      <div class="meter" role="img" aria-label="Gezeichneter Stromzähler, dessen Anzeige abwechselnd den Zählerstand für Bezug (1.8.0) und Einspeisung (2.8.0) zeigt">
+        <div class="meter-head"><span>eHZ</span><span>Klasse A</span></div>
+        <div class="lcd-frame"><div class="lcd"><svg id="lcd" viewBox="0 0 360 150" aria-hidden="true"></svg></div></div>
+        <div class="meter-mid">
+          <div class="labels">
+            <span><b>1.8.0</b> Bezug aus dem Netz</span>
+            <span><b>2.8.0</b> Einspeisung ins Netz</span>
+          </div>
+          <div class="led-block"><span class="led" id="led"></span><span>1000 imp/kWh</span></div>
+        </div>
+        <div class="nameplate">
+          <span>3~ 230/400 V</span><span>50 Hz</span>
+          <span>10(60) A</span><span>Zweirichtung</span>
+        </div>
+      </div>
+      <p class="meter-caption">Beispielwerte. Die Integration liest die Daten aus dem Portal, nicht am Zähler.</p>
+    </div>
+  </div>
+</div>
+
+<section class="week" aria-labelledby="week-h">
+  <div class="wrap week-head">
+    <h2 id="week-h">Eine Woche Lastgang</h2>
+    <p>So sieht eine Woche Stundenwerte aus dem Portal aus: Bezug nach oben, Einspeisung nach unten. Rechts fehlen noch Stunden, weil Netze BW die Werte mit Verzug liefert. Beispielwerte.</p>
+    <p class="legend"><span><i class="sw-b"></i>Bezug</span><span><i class="sw-e"></i>Einspeisung</span><span><i class="sw-n"></i>Nacht</span><span><i class="sw-p"></i>Noch keine Daten</span></p>
+  </div>
+  <div class="week-chart" id="chart" role="img" aria-label="Balkendiagramm über sieben Tage: Bezug in Orange nach oben, Einspeisung in Grün nach unten, Nächte hinterlegt, am rechten Rand ein gepunkteter Bereich ohne Daten"></div>
+</section>
+
+<section id="ablauf">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>So kommen die Daten ins Dashboard</h2>
+      <p>Dein Smart Meter Gateway meldet die Messwerte an Netze BW. Die Integration holt sie dort ab und legt sie als Langzeitstatistik in Home Assistant an.</p>
+    </div>
+    <ol class="flow">
+      <li>
+        <h3>meine.netze-bw.de</h3>
+        <p>Du meldest dich einmal mit deinem Portal-Zugang an. Die Integration findet alle aktiven Zähler deines Kontos.</p>
+      </li>
+      <li>
+        <h3>Integration</h3>
+        <p>Alle 6 Stunden ruft sie neue Werte ab, holt fehlende Tage nach und prüft die letzten 2 Tage erneut, weil das Portal Daten verzögert liefert.</p>
+      </li>
+      <li>
+        <h3>Energie-Dashboard</h3>
+        <p>Tages- und Stundenwerte landen als Langzeitstatistik in Home Assistant. Du wählst sie unter Einstellungen → Energie als Netzquelle aus.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Was die Integration kann</h2>
+    </div>
+    <ul class="features">
+      <li><h3>Findet deine Zähler selbst</h3><p>Alle aktiven intelligenten Messsysteme (IMS) deines Kontos werden erkannt. Du wählst nur aus, welche du überwachen willst.</p></li>
+      <li><h3>Bis zu 30 Tage Verlauf</h3><p>Tages- und Stundenwerte werden rückwirkend importiert, Viertelstundenwerte auf Wunsch.</p></li>
+      <li><h3>Lädt nur, was fehlt</h3><p>Nach dem ersten Import holt die Integration nur noch fehlende Tage und die letzten 2 Tage ab, nicht jedes Mal den ganzen Zeitraum.</p></li>
+      <li><h3>Bezug und Einspeisung</h3><p>Ein Zweirichtungszähler wird zu zwei Geräten: eines für <span class="bezug">Bezug</span>, eines für <span class="einsp">Einspeisung</span>. Auch dann, wenn das Portal sie als eine Anlage führt.</p></li>
+      <li><h3>Zählerdaten auf einen Blick</h3><p>Zählerstand, 7- und 30-Tage-Summen sowie Seriennummer, Messlokations-ID und Gateway-ID als Sensoren.</p></li>
+      <li><h3>Statistik-IDs zum Kopieren</h3><p>Ein Diagnose-Sensor zeigt die IDs der Langzeitstatistiken, die du in Dashboard-Karten einträgst.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section id="dashboard">
+  <div class="wrap dash">
+    <figure class="shot">
+      <img src="https://raw.githubusercontent.com/cygnusb/ha-netze-bw/main/examples/plotly.png" width="1004" height="880" alt="Plotly-Karte in Home Assistant: Bezug als orange Balken nach oben, Einspeisung als grüne Balken nach unten, Tagessummen über jedem Tag, Nächte grau hinterlegt, rechts gepunktet der Zeitraum ohne Daten">
+      <figcaption>Die Beispielkarte mit echten Werten aus einer Home-Assistant-Installation, 3-Tage-Ansicht.</figcaption>
+    </figure>
+    <div class="dash-text">
+      <h2>Eine fertige Karte für den Lastgang</h2>
+      <p>Für die <a href="https://github.com/dbuezas/lovelace-plotly-graph-card">Plotly Graph Card</a> liegt ein Beispiel bei, das du nur um deine zwei Statistik-IDs ergänzt.</p>
+      <ul>
+        <li>Bezug nach oben, Einspeisung nach unten, in kW je Stunde</li>
+        <li>Tagessummen in kWh über jedem Tag</li>
+        <li>Umschalten zwischen 24 Stunden, 3 und 7 Tagen</li>
+        <li>Lücken und noch nicht gelieferte Stunden sind markiert</li>
+      </ul>
+      <p><a href="https://github.com/cygnusb/ha-netze-bw/blob/main/examples/plotly_netze_bw.yaml">Beispiel-YAML auf GitHub öffnen</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="installation">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Installation</h2>
+      <p>Du brauchst Home Assistant ab Version 2025.1, ein Konto bei meine.netze-bw.de und mindestens einen aktiven IMS-Zähler.</p>
+    </div>
+    <div class="install">
+      <div>
+        <h3>Über HACS installieren</h3>
+        <ol>
+          <li>HACS in Home Assistant öffnen.</li>
+          <li>Oben rechts das Drei-Punkte-Menü öffnen und <b>Benutzerdefinierte Repositories</b> wählen.</li>
+          <li><code>https://github.com/cygnusb/ha-netze-bw</code> mit der Kategorie <b>Integration</b> hinzufügen.</li>
+          <li>Nach <b>Netze BW Portal</b> suchen und <b>Herunterladen</b> wählen.</li>
+          <li>Home Assistant neu starten.</li>
+        </ol>
+        <p class="note">Ohne HACS kopierst du den Ordner <code>custom_components/netze_bw_portal</code> in dein Konfigurationsverzeichnis und startest neu.</p>
+      </div>
+      <div>
+        <h3>Einrichten</h3>
+        <ol>
+          <li>Unter <b>Einstellungen → Geräte &amp; Dienste</b> auf <b>Integration hinzufügen</b> klicken.</li>
+          <li>Nach <b>Netze BW Portal</b> suchen.</li>
+          <li>E-Mail-Adresse und Passwort deines Zugangs zu meine.netze-bw.de eingeben.</li>
+          <li>Zähler auswählen und festlegen, welche Verläufe importiert werden. Die Sensoren entstehen danach automatisch.</li>
+        </ol>
+        <p class="note">Alle Optionen lassen sich später über <b>Konfigurieren</b> ändern.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="plate">
+      <h2>Gut zu wissen</h2>
+      <dl>
+        <dt>Anmeldung</dt><dd>Konten mit Zwei-Faktor-Anmeldung oder zusätzlichen Login-Schritten werden nicht unterstützt.</dd>
+        <dt>Tageswerte</dt><dd>Netze BW stellt sie meist mit 1 bis 2 Tagen Verzug bereit.</dd>
+        <dt>Stundenwerte</dt><dd>Sie erscheinen etwa 6 Stunden nach Ende der Stunde im Portal.</dd>
+        <dt>Zähler</dt><dd>Nötig ist ein intelligentes Messsystem (IMS). Moderne Messeinrichtungen ohne Gateway liefern keine Werte ins Portal.</dd>
+        <dt>Home Assistant</dt><dd>Version 2025.1.0 oder neuer.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>
+    <span>Inoffizielles Community-Projekt, nicht mit der Netze BW GmbH verbunden.</span>
+    <span>MIT-Lizenz, Quellcode auf <a href="https://github.com/cygnusb/ha-netze-bw">GitHub</a></span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  // 7-Segment-Anzeige als SVG, inkl. schwach sichtbarer unbeleuchteter Segmente wie auf echten LCDs
+  const SEG = { "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc", "7": "abc", "8": "abcdefg", "9": "abcdfg", "-": "g", " ": "" };
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("lcd");
+  const ink = "#1e2419", ghost = "rgba(30, 36, 25, 0.09)";
+
+  function segPaths(x, y, w, h, t) {
+    const hh = h / 2, k = t / 2;
+    const H = (x0, y0) => `M${x0 + k},${y0} L${x0 + w - k},${y0} L${x0 + w},${y0 + k} L${x0 + w - k},${y0 + t} L${x0 + k},${y0 + t} L${x0},${y0 + k} Z`;
+    const V = (x0, y0, len) => `M${x0},${y0 + k} L${x0 + k},${y0} L${x0 + t},${y0 + k} L${x0 + t},${y0 + len - k} L${x0 + k},${y0 + len} L${x0},${y0 + len - k} Z`;
+    return {
+      a: H(x, y), g: H(x, y + hh - k), d: H(x, y + h - t),
+      f: V(x - k + 0.5, y + k + 1, hh - 1), b: V(x + w - k - 0.5, y + k + 1, hh - 1),
+      e: V(x - k + 0.5, y + hh + 1, hh - k - 1), c: V(x + w - k - 0.5, y + hh + 1, hh - k - 1),
+    };
+  }
+  function digit(g, ch, x, y, w, h, t) {
+    const p = segPaths(x, y, w, h, t);
+    for (const s of "abcdefg") {
+      const el = document.createElementNS(NS, "path");
+      el.setAttribute("d", p[s]);
+      el.setAttribute("fill", (SEG[ch] || "").includes(s) ? ink : ghost);
+      g.appendChild(el);
+    }
+  }
+  function dot(g, x, y, r, on, comma) {
+    const c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", r);
+    c.setAttribute("fill", on ? ink : ghost); g.appendChild(c);
+    if (comma) {
+      const tail = document.createElementNS(NS, "path");
+      tail.setAttribute("d", `M${x + r * 0.3},${y + r * 0.6} L${x - r * 0.9},${y + r * 2.6} L${x - r * 0.2},${y + r * 2.6} L${x + r * 1.1},${y + r * 0.4} Z`);
+      tail.setAttribute("fill", on ? ink : ghost); g.appendChild(tail);
+    }
+  }
+  function text(g, str, x, y, size, anchor = "start", weight = 600) {
+    const t = document.createElementNS(NS, "text");
+    t.setAttribute("x", x); t.setAttribute("y", y); t.setAttribute("font-size", size);
+    t.setAttribute("font-family", "Barlow Condensed, Arial Narrow, sans-serif");
+    t.setAttribute("font-weight", weight); t.setAttribute("text-anchor", anchor); t.setAttribute("fill", ink);
+    t.textContent = str; g.appendChild(t);
+  }
+
+  const READINGS = [
+    { obis: "1.8.0", value: "  5246,98", dir: "+A", label: "Bezug" },
+    { obis: "2.8.0", value: "  4873,22", dir: "−A", label: "Einspeisung" },
+  ];
+
+  function render(r) {
+    svg.textContent = "";
+    const g = document.createElementNS(NS, "g");
+    g.setAttribute("transform", "skewX(-6) translate(10 0)");
+    svg.appendChild(g);
+    // Zeile 1: OBIS-Kennzahl klein
+    let x = 18;
+    for (const ch of r.obis) {
+      if (ch === ".") { dot(g, x + 1, 46, 2.4, true); x += 8; continue; }
+      digit(g, ch, x, 18, 16, 30, 3.6); x += 22;
+    }
+    text(g, r.dir, 312, 44, 22, "end");
+    // Zeile 2: Zählerstand groß, 6 Vorkommastellen, 2 Nachkommastellen
+    x = 14;
+    const val = r.value.padStart(9, " ");
+    let after = false;
+    for (const ch of val) {
+      if (ch === ",") { dot(g, x - 4, 124, 3.4, true, true); after = true; continue; }
+      digit(g, ch, x, 66, 26, 58, 5.2); x += after ? 33 : 35;
+    }
+    text(g, "kWh", 336, 124, 20, "end", 600);
+  }
+
+  const led = document.getElementById("led");
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let i = 0, cycle = null, blink = null;
+  function start() {
+    clearInterval(cycle); clearInterval(blink);
+    render(READINGS[0]); i = 0;
+    if (still.matches) { led.classList.remove("on"); return; }
+    cycle = setInterval(() => { i = (i + 1) % READINGS.length; render(READINGS[i]); }, 3000);
+    blink = setInterval(() => { led.classList.add("on"); setTimeout(() => led.classList.remove("on"), 90); }, 900);
+  }
+  still.addEventListener("change", start);
+  start();
+})();
+</script>
+
+<script>
+(() => {
+  // Wochen-Lastgang mit festen Beispielwerten: Mo 12.10. 12 Uhr bis Mo 19.10. 12 Uhr, Daten bis So 18.10. 6 Uhr
+  const H = 36e5;
+  const START = Date.UTC(2026, 9, 12, 12);
+  const HOURS = 168;
+  const DATA_HOURS = 138;
+  const DAYS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  const sun = [0.9, 0.55, 0.8, 0.35, 0.95, 0.7, 0.6, 0.85];
+  const hours = [];
+  for (let i = 0; i < HOURS; i++) {
+    const t = START + i * H;
+    const h = new Date(t).getUTCHours();
+    const day = Math.floor((i + 12) / 24);
+    const s = sun[day];
+    const pv = h >= 8 && h <= 17 ? 4.6 * s * Math.pow(Math.sin(Math.PI * (h - 7.5) / 10.5), 1.4) : 0;
+    let load = 0.3 + 0.15 * rnd();
+    if (h >= 6 && h <= 8) load += 0.6 * rnd() + 0.3;
+    if (h >= 18 && h <= 21) load += 0.6 + 0.9 * rnd();
+    if (h === 12 && day % 2 === 0) load += 1.4;
+    if (day === 5 && h >= 13 && h <= 15) load += 8.5 + 2 * rnd(); // Auto laden
+    if (day === 6 && (h === 0 || h === 1)) load += 7.5 + rnd();
+    const net = load - pv;
+    hours.push({ t, up: Math.max(net, 0), down: Math.max(-net, 0) });
+  }
+  const DATA_END = START + DATA_HOURS * H;
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const el = document.getElementById("chart");
+  const font = "Atkinson Hyperlegible, sans-serif";
+
+  function render() {
+    const W = Math.max(300, el.clientWidth);
+    const Hpx = el.clientHeight;
+    const narrow = W < 700;
+    const padB = 30;
+    const zero = Math.round(Hpx * 0.72);
+    const maxUp = 11.5, maxDown = 4.6;
+    const upPx = zero - 12;
+    const downPx = Hpx - padB - zero - 4;
+    const x = (t) => ((t - START) / (HOURS * H)) * W;
+    const bw = W / HOURS;
+    const c = { bezug: css("--orange"), einsp: css("--feed"), night: css("--night"), ink3: css("--ink-3"), ink2: css("--ink-2"), pending: css("--pending") };
+    let s = `<svg viewBox="0 0 ${W} ${Hpx}" preserveAspectRatio="none" aria-hidden="true">`;
+    s += `<defs><pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="1.1" fill="${c.pending}"/></pattern></defs>`;
+    for (let d = -1; d < 8; d++) { // Nächte 18:30 bis 7:45
+      const a = Date.UTC(2026, 9, 12 + d, 18, 30), b = Date.UTC(2026, 9, 13 + d, 7, 45);
+      const x0 = Math.max(0, x(a)), x1 = Math.min(W, x(b));
+      if (x1 > x0) s += `<rect x="${x0}" y="0" width="${x1 - x0}" height="${Hpx - padB}" fill="${c.night}"/>`;
+    }
+    const px = x(DATA_END);
+    s += `<rect x="${px}" y="0" width="${W - px}" height="${Hpx - padB}" fill="url(#dots)"/>`;
+    s += `<line x1="${px}" x2="${px}" y1="0" y2="${Hpx - padB}" stroke="${c.ink3}" stroke-dasharray="3 4"/>`;
+    if (W - px >= 130) {
+      s += `<text x="${px + 10}" y="${Hpx - padB - 12}" fill="${c.ink2}" font-size="14" font-family="${font}">noch keine Daten</text>`;
+    } else {
+      s += `<text x="${px + 6}" y="${Hpx - padB - 26}" fill="${c.ink2}" font-size="12" font-family="${font}"><tspan x="${px + 6}">noch keine</tspan><tspan x="${px + 6}" dy="14">Daten</tspan></text>`;
+    }
+    hours.forEach((p) => {
+      if (p.t >= DATA_END) return;
+      const bx = x(p.t) + bw * 0.12, w = Math.max(1, bw * 0.76), r = Math.min(1.5, w / 3);
+      if (p.up > 0.01) { const h = (p.up / maxUp) * upPx; s += `<rect x="${bx}" y="${zero - h}" width="${w}" height="${h}" rx="${r}" fill="${c.bezug}"/>`; }
+      if (p.down > 0.01) { const h = (p.down / maxDown) * downPx; s += `<rect x="${bx}" y="${zero + 1}" width="${w}" height="${h}" rx="${r}" fill="${c.einsp}"/>`; }
+    });
+    s += `<line x1="0" x2="${W}" y1="${zero + 0.5}" y2="${zero + 0.5}" stroke="${c.ink3}" stroke-width="1"/>`;
+    for (let d = 1; d <= 7; d++) { // Tage an Mitternacht
+      const t = Date.UTC(2026, 9, 12 + d), xx = x(t), dt = new Date(t);
+      const label = narrow ? DAYS[dt.getUTCDay()] : `${DAYS[dt.getUTCDay()]} ${dt.getUTCDate()}.10.`;
+      s += `<line x1="${xx}" x2="${xx}" y1="${Hpx - padB}" y2="${Hpx - padB + 6}" stroke="${c.ink3}"/>`;
+      s += `<text x="${xx}" y="${Hpx - 8}" text-anchor="middle" fill="${c.ink3}" font-size="13" font-family="${font}">${label}</text>`;
+    }
+    el.innerHTML = s + `</svg>`;
+  }
+
+  render();
+  let rt;
+  window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+  new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  if (document.fonts?.ready) document.fonts.ready.then(render);
+})();
+</script>
+</body>
+</html>
