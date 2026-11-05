@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, datetime, time, timedelta, timezone
+from functools import partial
 import logging
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.statistics import (
+    get_metadata,
+    statistics_during_period,
+)
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -32,8 +39,10 @@ from .history_logic import (
     compute_history_state,
     expected_daily_dates,
     expected_hourly_dates,
+    hourly_states_from_points,
     missing_dates,
     prune_dates,
+    rebuild_cumulative_rows,
 )
 from .models import (
     CoordinatorData,
@@ -58,6 +67,15 @@ STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}_history"
 
 PORTAL_TZ = ZoneInfo(PORTAL_TIMEZONE)
+
+# Set per meter once all its statistics have had their cumulative sums
+# recomputed from the stored hourly states (repairs issue #9 data).
+SUMS_REBUILT_KEY = "statistic_sums_rebuilt"
+# How far back to look for the last recorder row before a push.
+STATISTICS_BASE_LOOKBACK = timedelta(days=7)
+STATISTICS_EPOCH = datetime(2000, 1, 1, tzinfo=timezone.utc)
+HA_VERSION = (MAJOR_VERSION, MINOR_VERSION)
+HISTORY_INTERVALS = (MEASUREMENT_FILTER_DAY, MEASUREMENT_FILTER_HOUR, MEASUREMENT_FILTER_15MIN)
 
 
 class NetzeBwPortalHistoryManager:
@@ -103,6 +121,8 @@ class NetzeBwPortalHistoryManager:
 
         for meter_id, snapshot in coordinator_data.meters.items():
             stored_meter = meter_state.setdefault(meter_id, {})
+            rebuild_sums = not stored_meter.get(SUMS_REBUILT_KEY)
+            pushed_intervals: set[str] = set()
             try:
                 history_value_type = _history_value_type(snapshot.meter)
 
@@ -146,8 +166,9 @@ class NetzeBwPortalHistoryManager:
                                 meter_id, len(daily_series.points),
                             )
                             await self._async_push_statistics(
-                                snapshot.meter, daily_series
+                                snapshot.meter, daily_series, full_rebuild=rebuild_sums
                             )
+                            pushed_intervals.add(MEASUREMENT_FILTER_DAY)
                             # Populate latest value
                             latest = _latest_point(daily_series)
                             if latest is not None:
@@ -169,7 +190,10 @@ class NetzeBwPortalHistoryManager:
                                 "Meter %s: pushing %d hourly stats rows",
                                 meter_id, len(hourly_series.points),
                             )
-                            await self._async_push_statistics(snapshot.meter, hourly_series)
+                            await self._async_push_statistics(
+                                snapshot.meter, hourly_series, full_rebuild=rebuild_sums
+                            )
+                            pushed_intervals.add(MEASUREMENT_FILTER_HOUR)
                             latest = _latest_point(hourly_series)
                             if latest is not None:
                                 snapshot.latest_hourly_value = latest.value
@@ -191,10 +215,25 @@ class NetzeBwPortalHistoryManager:
                                 "Meter %s: pushing %d 15min stats rows",
                                 meter_id, len(fifteenmin_series.points),
                             )
-                            await self._async_push_statistics(snapshot.meter, fifteenmin_series)
+                            await self._async_push_statistics(
+                                snapshot.meter, fifteenmin_series, full_rebuild=rebuild_sums
+                            )
+                            pushed_intervals.add(MEASUREMENT_FILTER_15MIN)
                             latest_15min = _latest_point(fifteenmin_series)
                             if latest_15min is not None:
                                 snapshot.latest_15min_value = latest_15min.value
+
+                # ---- One-time repair of sums written before issue #9 ----
+                if rebuild_sums:
+                    for interval in HISTORY_INTERVALS:
+                        if interval not in pushed_intervals:
+                            await self._async_rebuild_existing_statistic(
+                                snapshot.meter, interval
+                            )
+                    stored_meter[SUMS_REBUILT_KEY] = True
+                    _LOGGER.info(
+                        "Meter %s: recomputed cumulative statistic sums", meter_id
+                    )
 
                 # ---- Persist fetched-date sets ----
                 stored_meter["daily_fetched_dates"] = _save_date_set(daily_fetched)
@@ -367,23 +406,95 @@ class NetzeBwPortalHistoryManager:
         self,
         meter: MeterDefinition,
         series: MeasurementSeries,
+        *,
+        full_rebuild: bool = False,
     ) -> None:
         """Export imported intervals to recorder statistics."""
-        rows = _statistics_rows_from_series(series)
+        fetched = hourly_states_from_points(series.points, series.interval)
+        if not fetched:
+            return
+        metadata = _statistic_metadata(meter, series.interval, series.unit or "kWh")
+        await self._async_write_statistic(metadata, fetched, full_rebuild=full_rebuild)
+
+    async def _async_rebuild_existing_statistic(
+        self, meter: MeterDefinition, interval: str
+    ) -> None:
+        """Recompute the sums of an already imported statistic from its states."""
+        sid = statistic_id(meter, interval)
+        existing = await get_instance(self.hass).async_add_executor_job(
+            partial(get_metadata, self.hass, statistic_ids={sid})
+        )
+        if sid not in existing:
+            return
+        unit = existing[sid][1].get("unit_of_measurement") or "kWh"
+        metadata = _statistic_metadata(meter, interval, unit)
+        await self._async_write_statistic(metadata, {}, full_rebuild=True)
+
+    async def _async_write_statistic(
+        self,
+        metadata: StatisticMetaData,
+        fetched: dict[datetime, float],
+        *,
+        full_rebuild: bool,
+    ) -> None:
+        """Merge fetched states into the recorder with continuous sums.
+
+        The sum continues from the last recorder row before the first
+        fetched hour, and every later row is re-summed, so a re-fetched or
+        gap-filled day never resets the sum (issue #9). With *full_rebuild*
+        the whole statistic is recomputed from its stored states.
+        """
+        sid = metadata["statistic_id"]
+        if full_rebuild or not fetched:
+            base_sum = 0.0
+            from_time = STATISTICS_EPOCH
+        else:
+            from_time = min(fetched)
+            base_sum = await self._async_last_sum_before(sid, from_time)
+
+        existing = await self._async_read_statistic(sid, from_time, None)
+        rows = rebuild_cumulative_rows(
+            base_sum, {start: state for start, state, _ in existing}, fetched
+        )
         if not rows:
             return
-
-        metadata = StatisticMetaData(
-            has_mean=False,
-            has_sum=True,
-            mean_type=0,
-            name=f"{meter.friendly_name} {series.interval.lower()}",
-            source=DOMAIN,
-            statistic_id=statistic_id(meter, series.interval),
-            unit_of_measurement=series.unit or "kWh",
-            unit_class="energy",
+        _LOGGER.debug(
+            "%s: writing %d rows from %s (base sum %.3f)",
+            sid, len(rows), rows[0][0].isoformat(), base_sum,
         )
-        async_add_external_statistics(self.hass, metadata, rows)
+        async_add_external_statistics(
+            self.hass,
+            metadata,
+            [StatisticData(start=start, state=state, sum=total) for start, state, total in rows],
+        )
+
+    async def _async_last_sum_before(self, sid: str, before: datetime) -> float:
+        """Return the sum of the last recorder row starting before *before*."""
+        rows = await self._async_read_statistic(sid, before - STATISTICS_BASE_LOOKBACK, before)
+        if not rows:
+            rows = await self._async_read_statistic(sid, STATISTICS_EPOCH, before)
+        if not rows:
+            return 0.0
+        return rows[-1][2] or 0.0
+
+    async def _async_read_statistic(
+        self, sid: str, start: datetime, end: datetime | None
+    ) -> list[tuple[datetime, float | None, float | None]]:
+        """Read ``(start, state, sum)`` hourly rows of one statistic, oldest first."""
+        result = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            start,
+            end,
+            {sid},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        return [
+            (_row_start(row["start"]), row.get("state"), row.get("sum"))
+            for row in result.get(sid, [])
+        ]
 
 
 # ------------------------------------------------------------------
@@ -406,53 +517,28 @@ def statistic_id(meter: MeterDefinition, interval: str) -> str:
     return f"{DOMAIN}:{slugify(f'{meter.key}_{resolution}')}"
 
 
-def _statistics_rows_from_series(series: MeasurementSeries) -> list[StatisticData]:
-    # HA external statistics only support hourly boundaries.
-    # For sub-hourly intervals (15MIN), aggregate into hourly buckets first.
-    if series.interval == MEASUREMENT_FILTER_15MIN:
-        return _statistics_rows_aggregated_hourly(series)
-
-    running_sum = 0.0
-    rows: list[StatisticData] = []
-    for point in series.points:
-        if point.value is None:
-            continue
-        running_sum += point.value
-        start = _normalize_statistic_start(point.start_datetime, series.interval)
-        rows.append(
-            StatisticData(
-                start=start,
-                state=point.value,
-                sum=running_sum,
-            )
-        )
-    return rows
+def _statistic_metadata(meter: MeterDefinition, interval: str, unit: str) -> StatisticMetaData:
+    metadata: dict[str, Any] = {
+        "has_mean": False,
+        "has_sum": True,
+        "name": f"{meter.friendly_name} {interval.lower()}",
+        "source": DOMAIN,
+        "statistic_id": statistic_id(meter, interval),
+        "unit_of_measurement": unit,
+    }
+    # Older recorders reject unknown metadata keys when importing.
+    if HA_VERSION >= (2025, 4):
+        metadata["mean_type"] = 0
+    if HA_VERSION >= (2025, 11):
+        metadata["unit_class"] = "energy"
+    return metadata  # type: ignore[return-value]
 
 
-def _statistics_rows_aggregated_hourly(series: MeasurementSeries) -> list[StatisticData]:
-    """Aggregate sub-hourly points into hourly buckets for recorder compatibility."""
-    buckets: dict[datetime, float] = {}
-    for point in series.points:
-        if point.value is None:
-            continue
-        hour = point.start_datetime.astimezone(timezone.utc).replace(
-            minute=0, second=0, microsecond=0
-        )
-        buckets[hour] = buckets.get(hour, 0.0) + point.value
-
-    running_sum = 0.0
-    rows: list[StatisticData] = []
-    for hour in sorted(buckets):
-        value = buckets[hour]
-        running_sum += value
-        rows.append(StatisticData(start=hour, state=value, sum=running_sum))
-    return rows
-
-
-def _normalize_statistic_start(value: datetime, interval: str) -> datetime:
-    """Normalize recorder timestamps to interval boundaries."""
-    value = value.astimezone(timezone.utc)
-    return value.replace(minute=0, second=0, microsecond=0)
+def _row_start(value: float | datetime) -> datetime:
+    """Recorder rows carry a UTC timestamp (float) as start."""
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc)
+    return dt_util.utc_from_timestamp(value)
 
 
 def _latest_point(series: MeasurementSeries | None) -> MeasurementPoint | None:

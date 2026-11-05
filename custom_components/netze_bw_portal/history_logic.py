@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -14,7 +15,7 @@ from .const import (
     MEASUREMENT_FILTER_HOUR,
     PORTAL_TIMEZONE,
 )
-from .models import HistoryGap, HistoryState
+from .models import HistoryGap, HistoryState, MeasurementPoint
 
 PORTAL_TZ = ZoneInfo(PORTAL_TIMEZONE)
 
@@ -145,3 +146,46 @@ def compute_history_state(
         last_backfill=last_backfill,
         last_15min_point=last_15min_point,
     )
+
+
+def hourly_states_from_points(
+    points: Iterable[MeasurementPoint], interval: str
+) -> dict[datetime, float]:
+    """Map measurement points to per-hour UTC statistic states.
+
+    HA external statistics only support hourly boundaries, so 15-minute
+    points are summed into their hour.
+    """
+    states: dict[datetime, float] = {}
+    for point in points:
+        if point.value is None:
+            continue
+        hour = _ensure_utc(point.start_datetime).replace(minute=0, second=0, microsecond=0)
+        if interval == MEASUREMENT_FILTER_15MIN:
+            states[hour] = states.get(hour, 0.0) + point.value
+        else:
+            states[hour] = point.value
+    return states
+
+
+def rebuild_cumulative_rows(
+    base_sum: float,
+    existing_states: Mapping[datetime, float | None],
+    fetched_states: Mapping[datetime, float],
+) -> list[tuple[datetime, float, float]]:
+    """Merge fetched states over recorder states and recompute cumulative sums.
+
+    *base_sum* is the sum of the last recorder row before the first merged
+    hour. Fetched values replace existing ones for the same hour. Returns
+    ``(start, state, sum)`` tuples sorted by start, so the sum continues
+    across pushes instead of restarting at zero (issue #9).
+    """
+    merged = {start: state for start, state in existing_states.items() if state is not None}
+    merged.update(fetched_states)
+
+    running_sum = base_sum
+    rows: list[tuple[datetime, float, float]] = []
+    for start in sorted(merged):
+        running_sum += merged[start]
+        rows.append((start, merged[start], running_sum))
+    return rows
