@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
 from functools import partial
 import logging
@@ -28,7 +29,6 @@ from .const import (
     CONF_HISTORY_BACKFILL_DAYS,
     DOMAIN,
     HISTORY_DAYS,
-    HISTORY_RECHECK_DAYS,
     HOURLY_FETCH_DELAY_SECONDS,
     MEASUREMENT_FILTER_15MIN,
     MEASUREMENT_FILTER_DAY,
@@ -37,10 +37,13 @@ from .const import (
 )
 from .history_logic import (
     compute_history_state,
+    daily_fetch_window,
     expected_daily_dates,
+    full_day_points,
     expected_hourly_dates,
     hourly_states_from_points,
     missing_dates,
+    neutralize_partial_days,
     prune_dates,
     rebuild_cumulative_rows,
 )
@@ -69,8 +72,9 @@ STORAGE_KEY = f"{DOMAIN}_history"
 PORTAL_TZ = ZoneInfo(PORTAL_TIMEZONE)
 
 # Set per meter once all its statistics have had their cumulative sums
-# recomputed from the stored hourly states (repairs issue #9 data).
-SUMS_REBUILT_KEY = "statistic_sums_rebuilt"
+# recomputed from the stored hourly states (repairs issue #9 data). v2 also
+# zeroes the partial-day rows that the daily import created up to 0.6.4.
+SUMS_REBUILT_KEY = "statistic_sums_rebuilt_v2"
 # How far back to look for the last recorder row before a push.
 STATISTICS_BASE_LOOKBACK = timedelta(days=7)
 STATISTICS_EPOCH = datetime(2000, 1, 1, tzinfo=timezone.utc)
@@ -158,6 +162,11 @@ class NetzeBwPortalHistoryManager:
                         daily_series = await self._async_fetch_daily(
                             snapshot.meter.id, history_value_type, backfill_days, now
                         )
+                        if daily_series is not None:
+                            daily_series = replace(
+                                daily_series,
+                                points=full_day_points(daily_series.points, exp_daily),
+                            )
                         if daily_series and daily_series.points:
                             # Mark all dates in the expected window as fetched
                             daily_fetched |= exp_daily
@@ -309,13 +318,13 @@ class NetzeBwPortalHistoryManager:
         now: datetime,
     ) -> MeasurementSeries | None:
         """Fetch daily data for the entire backfill window (single API call)."""
-        start = now - timedelta(days=backfill_days)
+        start, end = daily_fetch_window(now, backfill_days)
         return await self.api.async_fetch_measurement_series(
             meter_id=meter_id,
             value_type=value_type,
             interval=MEASUREMENT_FILTER_DAY,
             start=start,
-            end=now,
+            end=end,
         )
 
     async def _async_fetch_for_date(
@@ -414,7 +423,9 @@ class NetzeBwPortalHistoryManager:
         if not fetched:
             return
         metadata = _statistic_metadata(meter, series.interval, series.unit or "kWh")
-        await self._async_write_statistic(metadata, fetched, full_rebuild=full_rebuild)
+        await self._async_write_statistic(
+            metadata, series.interval, fetched, full_rebuild=full_rebuild
+        )
 
     async def _async_rebuild_existing_statistic(
         self, meter: MeterDefinition, interval: str
@@ -428,11 +439,12 @@ class NetzeBwPortalHistoryManager:
             return
         unit = existing[sid][1].get("unit_of_measurement") or "kWh"
         metadata = _statistic_metadata(meter, interval, unit)
-        await self._async_write_statistic(metadata, {}, full_rebuild=True)
+        await self._async_write_statistic(metadata, interval, {}, full_rebuild=True)
 
     async def _async_write_statistic(
         self,
         metadata: StatisticMetaData,
+        interval: str,
         fetched: dict[datetime, float],
         *,
         full_rebuild: bool,
@@ -442,7 +454,8 @@ class NetzeBwPortalHistoryManager:
         The sum continues from the last recorder row before the first
         fetched hour, and every later row is re-summed, so a re-fetched or
         gap-filled day never resets the sum (issue #9). With *full_rebuild*
-        the whole statistic is recomputed from its stored states.
+        the whole statistic is recomputed from its stored states. Daily rows
+        that do not start at local midnight are zeroed.
         """
         sid = metadata["statistic_id"]
         if full_rebuild or not fetched:
@@ -453,9 +466,10 @@ class NetzeBwPortalHistoryManager:
             base_sum = await self._async_last_sum_before(sid, from_time)
 
         existing = await self._async_read_statistic(sid, from_time, None)
-        rows = rebuild_cumulative_rows(
-            base_sum, {start: state for start, state, _ in existing}, fetched
-        )
+        existing_states = {start: state for start, state, _ in existing}
+        if interval == MEASUREMENT_FILTER_DAY:
+            existing_states = neutralize_partial_days(existing_states)
+        rows = rebuild_cumulative_rows(base_sum, existing_states, fetched)
         if not rows:
             return
         _LOGGER.debug(
