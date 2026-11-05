@@ -145,3 +145,50 @@ def test_hourly_states_normalize_to_utc_hour() -> None:
     states = hourly_states_from_points([_point(local, 60, 0.4)], MEASUREMENT_FILTER_HOUR)
     assert states == {T0: 0.4}
     assert next(iter(states)).tzinfo == timezone.utc
+
+
+def test_daily_fetch_window_is_aligned_to_local_midnight() -> None:
+    from zoneinfo import ZoneInfo
+
+    from custom_components.netze_bw_portal.history_logic import (
+        daily_fetch_window,
+        expected_daily_dates,
+    )
+
+    now = datetime(2026, 11, 5, 6, 6, tzinfo=timezone.utc)
+    start, end = daily_fetch_window(now, 30)
+    expected = expected_daily_dates(now, 30)
+    berlin = ZoneInfo("Europe/Berlin")
+    assert start == datetime.combine(min(expected), datetime.min.time(), berlin)
+    assert end == datetime.combine(max(expected), datetime.min.time(), berlin) + timedelta(days=1)
+    assert start.tzinfo is timezone.utc and end.tzinfo is timezone.utc
+
+
+def test_full_day_points_drop_partial_and_unexpected_days() -> None:
+    from custom_components.netze_bw_portal.history_logic import full_day_points
+
+    midnight_winter = datetime(2026, 11, 1, 23, 0, tzinfo=timezone.utc)  # 2 Nov local
+    midnight_summer = datetime(2026, 10, 20, 22, 0, tzinfo=timezone.utc)  # 21 Oct local
+    partial = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
+    outside = datetime(2026, 11, 4, 23, 0, tzinfo=timezone.utc)  # 5 Nov local, not expected
+    points = [
+        _point(partial, 600, 0.2),
+        _point(midnight_summer, 1440, 7.0),
+        _point(midnight_winter, 1440, 9.0),
+        _point(outside, 1440, 1.0),
+    ]
+    expected = {midnight_summer.date() + timedelta(days=1), midnight_winter.date() + timedelta(days=1)}
+    kept = full_day_points(points, expected)
+    assert [p.value for p in kept] == [7.0, 9.0]
+
+
+def test_partial_day_rows_are_neutralized() -> None:
+    from custom_components.netze_bw_portal.history_logic import neutralize_partial_days
+
+    midnight = datetime(2026, 11, 1, 23, 0, tzinfo=timezone.utc)
+    partial = datetime(2026, 11, 2, 6, 0, tzinfo=timezone.utc)
+    existing = {midnight: 9.0, partial: 0.2}
+    neutral = neutralize_partial_days(existing)
+    assert neutral == {midnight: 9.0, partial: 0.0}
+    rows = rebuild_cumulative_rows(0.0, neutral, {})
+    assert [(r[1], r[2]) for r in rows] == [(9.0, 9.0), (0.0, 9.0)]

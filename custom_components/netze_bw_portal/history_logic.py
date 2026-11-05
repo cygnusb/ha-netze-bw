@@ -189,3 +189,47 @@ def rebuild_cumulative_rows(
         running_sum += merged[start]
         rows.append((start, merged[start], running_sum))
     return rows
+
+
+def _is_local_midnight(value: datetime) -> bool:
+    return _ensure_utc(value).astimezone(PORTAL_TZ).time() == time.min
+
+
+def daily_fetch_window(now: datetime, days: int) -> tuple[datetime, datetime]:
+    """Return the UTC request window covering exactly the expected daily dates.
+
+    The portal returns a partial first day when the window does not start
+    at local midnight, so both ends are aligned to it.
+    """
+    expected = expected_daily_dates(now, days)
+    start = datetime.combine(min(expected), time.min, tzinfo=PORTAL_TZ)
+    end = datetime.combine(max(expected) + timedelta(days=1), time.min, tzinfo=PORTAL_TZ)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+def full_day_points(
+    points: Iterable[MeasurementPoint], expected: set[date]
+) -> list[MeasurementPoint]:
+    """Keep only daily points that start at local midnight on an expected date."""
+    return [
+        point
+        for point in points
+        if _is_local_midnight(point.start_datetime)
+        and _ensure_utc(point.start_datetime).astimezone(PORTAL_TZ).date() in expected
+    ]
+
+
+def neutralize_partial_days(
+    existing_states: Mapping[datetime, float | None],
+) -> dict[datetime, float | None]:
+    """Zero daily recorder rows that do not start at local midnight.
+
+    Versions up to 0.6.4 imported partial days at the daily window start.
+    The recorder import cannot delete rows, so they keep their start but get
+    state 0 and a continuous sum, which makes them invisible in the
+    dashboard.
+    """
+    return {
+        start: state if _is_local_midnight(start) else 0.0
+        for start, state in existing_states.items()
+    }
