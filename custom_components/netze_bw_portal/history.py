@@ -519,16 +519,18 @@ def statistic_id(meter: MeterDefinition, interval: str) -> str:
 
 def _statistic_metadata(meter: MeterDefinition, interval: str, unit: str) -> StatisticMetaData:
     metadata: dict[str, Any] = {
-        "has_mean": False,
         "has_sum": True,
         "name": f"{meter.friendly_name} {interval.lower()}",
         "source": DOMAIN,
         "statistic_id": statistic_id(meter, interval),
         "unit_of_measurement": unit,
     }
-    # Older recorders reject unknown metadata keys when importing.
+    # Older recorders reject unknown metadata keys when importing;
+    # mean_type replaces the deprecated has_mean.
     if HA_VERSION >= (2025, 4):
         metadata["mean_type"] = 0
+    else:
+        metadata["has_mean"] = False
     if HA_VERSION >= (2025, 11):
         metadata["unit_class"] = "energy"
     return metadata  # type: ignore[return-value]
