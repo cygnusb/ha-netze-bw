@@ -244,7 +244,7 @@ footer { border-top: 1px solid var(--rule); padding-block: 32px 48px; color: var
         </a>
         <a class="btn btn-secondary" href="#installation">Installation</a>
       </div>
-      <p class="facts"><span>Installation über HACS</span><span>Home Assistant ab 2025.1</span><span>MIT-Lizenz</span></p>
+      <p class="facts"><span>Installation über Marketplace oder HACS</span><span>Home Assistant ab 2025.1</span><span>MIT-Lizenz</span></p>
     </div>
 
     <div>
@@ -344,15 +344,14 @@ footer { border-top: 1px solid var(--rule); padding-block: 32px 48px; color: var
     </div>
     <div class="install">
       <div>
-        <h3>Über HACS installieren</h3>
+        <h3>Über den Marketplace installieren</h3>
         <ol>
-          <li>HACS in Home Assistant öffnen.</li>
-          <li>Oben rechts das Drei-Punkte-Menü öffnen und <b>Benutzerdefinierte Repositories</b> wählen.</li>
-          <li><code>https://github.com/cygnusb/ha-netze-bw</code> mit der Kategorie <b>Integration</b> hinzufügen.</li>
-          <li>Nach <b>Netze BW Portal</b> suchen und <b>Herunterladen</b> wählen.</li>
+          <li>In Home Assistant <b>Einstellungen → Marketplace</b> öffnen.</li>
+          <li>Nach <b>Netze BW Portal</b> suchen und <b>Installieren</b> wählen.</li>
           <li>Home Assistant neu starten.</li>
         </ol>
-        <p class="note">Ohne HACS kopierst du den Ordner <code>custom_components/netze_bw_portal</code> in dein Konfigurationsverzeichnis und startest neu.</p>
+        <p class="note">Der Marketplace ist ab Home Assistant 2026.11 eingebaut. Bei älteren Versionen öffnest du stattdessen HACS in der Seitenleiste, suchst dort nach <b>Netze BW Portal</b> und wählst <b>Herunterladen</b>. Die Integration steht im Standardkatalog, ein benutzerdefiniertes Repository brauchst du nicht. <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=cygnusb&amp;repository=ha-netze-bw&amp;category=integration">Direkt in Home Assistant öffnen</a> klappt mit beiden.</p>
+        <p class="note">Ohne Marketplace oder HACS kopierst du den Ordner <code>custom_components/netze_bw_portal</code> in dein Konfigurationsverzeichnis und startest neu.</p>
       </div>
       <div>
         <h3>Einrichten</h3>

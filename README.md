@@ -6,7 +6,7 @@
 
 [![GitHub Release][release-badge]][release-url]
 [![GitHub Downloads (all assets, all releases)][downloads-badge]][release-url]
-[![HACS Custom][hacs-badge]][hacs-url]
+[![Marketplace / HACS Default][hacs-badge]][hacs-url]
 [![HA Version][ha-badge]][ha-url]
 [![License][license-badge]][license-url]
 [![GitHub commit activity][commits-badge]][commits-url]
@@ -101,13 +101,23 @@ Home Assistant stores the imported history as hourly statistics only, including 
 
 ## Installation
 
-### HACS (recommended)
+### Marketplace / HACS (recommended)
 
-1. Open HACS in your Home Assistant instance
-2. Click the three dots in the top right corner and select **Custom repositories**
-3. Add this repository URL with category **Integration**
-4. Search for **Netze BW Portal** and click **Install**
-5. Restart Home Assistant
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cygnusb&repository=ha-netze-bw&category=integration)
+
+Netze BW Portal is in the default catalog, so you do not need to add a custom repository. The button above works with both the Marketplace and HACS.
+
+**Home Assistant 2026.11 and newer** (the Marketplace is built in):
+
+1. Go to **Settings** > **Marketplace**
+2. Search for **Netze BW Portal** and click **Install**
+3. Restart Home Assistant
+
+**Home Assistant 2025.1 to 2026.10** (HACS):
+
+1. Open **HACS** in the sidebar
+2. Search for **Netze BW Portal** and click **Download**
+3. Restart Home Assistant
 
 ### Manual
 
@@ -164,8 +174,8 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 [release-badge]: https://img.shields.io/github/v/release/cygnusb/ha-netze-bw?include_prereleases
 [release-url]: https://github.com/cygnusb/ha-netze-bw/releases
 [downloads-badge]: https://img.shields.io/github/downloads/cygnusb/ha-netze-bw/total
-[hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
-[hacs-url]: https://hacs.xyz
+[hacs-badge]: https://img.shields.io/badge/Marketplace%20%2F%20HACS-Default-41BDF5.svg
+[hacs-url]: https://www.hacs.xyz/docs/marketplace/
 [ha-badge]: https://img.shields.io/badge/HA-2025.1.0+-blue.svg
 [ha-url]: https://www.home-assistant.io/
 [license-badge]: https://img.shields.io/badge/license-MIT-green.svg
